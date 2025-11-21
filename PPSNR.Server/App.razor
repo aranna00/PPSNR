@@ -1,0 +1,21 @@
+﻿@using PPSNR.Server2.Components.Pages
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="@typeof(NotFound)">
+        <Found Context="data">
+            <AuthorizeRouteView RouteData="@data" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    <p>You are not authorized. Please <a href="@LoginUrl">login with Twitch</a>.</p>
+                </NotAuthorized>
+                <Authorizing>
+                    <p>Authorizing...</p>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@data" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>
+
+@code {
+    [Inject] NavigationManager? Nav { get; set; }
+    private string LoginUrl => $"/auth/login?returnUrl={Uri.EscapeDataString(Nav?.Uri ?? string.Empty)}";
+}

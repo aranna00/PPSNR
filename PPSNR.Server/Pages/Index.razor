@@ -1,0 +1,19 @@
+﻿@page "/"
+@inject NavigationManager Nav
+
+<div>
+    <button @onclick="Test">Test</button>
+</div>
+
+@code {
+
+    private void Test()
+    {
+        Console.WriteLine("This is a test");
+    }
+
+    protected override void OnInitialized()
+    {
+        // Nav.NavigateTo("/pairs", true);
+    }
+}

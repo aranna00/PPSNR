@@ -1,0 +1,131 @@
+﻿@page "/pairs"
+@using PPSNR.Server2.Data.Entities
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@rendermode InteractiveServer
+
+<h1>Streamer Pairs</h1>
+
+<div style="margin-bottom:8px;">
+    <button @onclick="CreateSamplePair" disabled="@busy">@(busy ? "Creating..." : "Create Sample Pair")</button>
+    @if (!string.IsNullOrWhiteSpace(status))
+    {
+        <span style="margin-left:10px; color:@(statusIsError ? "#c00" : "#090")">@status</span>
+    }
+    <button style="margin-left:10px;" @onclick=Reload disabled="@busy">Reload</button>
+    <span style="margin-left:10px; color:#666">Count: @pairs.Count</span>
+    @if (lastCreatedId != Guid.Empty)
+    {
+        <span style="margin-left:10px; color:#666">Last created: @lastCreatedId</span>
+    }
+</div>
+
+<ul>
+    @foreach (var p in pairs)
+    {
+        <li>
+            <b>@p.Name</b>
+            @if (links.TryGetValue(p.Id, out var link))
+            {
+                <div>
+                    View: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
+                </div>
+                <div>
+                    Edit: <a href="/@p.Id/edit/@link.EditToken" target="_blank">/@p.Id/edit/@link.EditToken</a>
+                </div>
+            }
+            else
+            {
+                <button @onclick="(() => GenerateLinks(p.Id))">Generate Links</button>
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    private List<StreamerPair> pairs = new();
+    private Dictionary<Guid, PairLink> links = new();
+    private bool busy;
+    private string? status;
+    private bool statusIsError;
+    private Guid lastCreatedId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        try
+        {
+            busy = true;
+            await using var db = await DbFactory.CreateDbContextAsync();
+            pairs = await db.Pairs.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
+            links.Clear();
+            var pairIds = pairs.Select(p => p.Id).ToList();
+            var existingLinks = await db.PairLinks.AsNoTracking().Where(l => pairIds.Contains(l.PairId)).ToListAsync();
+            foreach (var l in existingLinks)
+            {
+                links[l.PairId] = l;
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task GenerateLinks(Guid id)
+    {
+        // Perform the POST from the browser so antiforgery cookie and header are included
+        // The JS helper will fetch an antiforgery token/cookie pair and then POST with the header
+        var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", $"api/pairs/{id}/links");
+        var dto = System.Text.Json.JsonDocument.Parse(dtoText);
+        var viewToken = dto.RootElement.GetProperty("viewToken").GetGuid();
+        var editToken = dto.RootElement.GetProperty("editToken").GetGuid();
+        links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken };
+        StateHasChanged();
+    }
+
+    private async Task CreateSamplePair()
+    {
+        status = null;
+        statusIsError = false;
+        busy = true;
+        StateHasChanged();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var pair = new StreamerPair { Name = $"Pair {DateTime.Now:HHmmss}" };
+            db.Pairs.Add(pair);
+            var s1 = new Streamer { DisplayName = "Streamer A" };
+            var s2 = new Streamer { DisplayName = "Streamer B" };
+            db.Streamers.AddRange(s1, s2);
+            var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id };
+            var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id };
+            db.Layouts.AddRange(l1, l2);
+            // Seed 6 Pokemon slots and 16 badge slots for l1
+            for (int i = 0; i < 6; i++) db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1 });
+            for (int i = 0; i < 16; i++) db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1 });
+            // Same for l2
+            for (int i = 0; i < 6; i++) db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1 });
+            for (int i = 0; i < 16; i++) db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1 });
+            await db.SaveChangesAsync();
+            lastCreatedId = pair.Id;
+            status = $"Created pair '{pair.Name}'";
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            statusIsError = true;
+            status = $"Error: {ex.GetType().Name} - {ex.Message}";
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+}

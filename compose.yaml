@@ -1,0 +1,19 @@
+﻿services:
+  ppsnr.server:
+    image: ppsnr.server
+    environment:
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
+      - ASPNETCORE_URLS=http://+:8080
+    ports:
+      - "8080:8080"
+    build:
+      context: .
+      dockerfile: src/PPSNR.Server/Dockerfile
+
+  ppsnr.server2:
+    image: ppsnr.server2
+    build:
+      context: .
+      dockerfile: PPSNR.Server2/Dockerfile
+

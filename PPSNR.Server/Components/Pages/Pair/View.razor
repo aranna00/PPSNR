@@ -1,0 +1,65 @@
+﻿@page "/{pairId:guid}/view/{token:guid}"
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
+@using PPSNR.Server2.Data.Entities
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+
+@code {
+    [Parameter] public Guid PairId { get; set; }
+    [Parameter] public Guid Token { get; set; }
+
+    private StreamerPair? _pair;
+    private List<Layout> _layouts = new();
+    private List<Slot> _slots = new();
+    private HubConnection? _hub;
+    private bool _authorized;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Validate token
+        var link = Db.PairLinks.FirstOrDefault(l => l.PairId == PairId);
+        _authorized = link != null && link.ViewToken == Token && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow);
+        if (!_authorized)
+        {
+            Nav.NavigateTo("/403", forceLoad: true);
+            return;
+        }
+
+        _pair = Db.Pairs.FirstOrDefault(p => p.Id == PairId);
+        if (_pair == null) return;
+        _layouts = Db.Layouts.Where(l => l.PairId == PairId).ToList();
+        var layoutIds = _layouts.Select(l => l.Id).ToList();
+        _slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId)).OrderBy(s => s.ZIndex).ToList();
+
+        _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+        _hub.On<object>("SlotUpdated", payload =>
+        {
+            var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
+            var id = json.RootElement.GetProperty("Id").GetGuid();
+            var slot = _slots.FirstOrDefault(s => s.Id == id);
+            if (slot != null)
+            {
+                slot.X = (float)json.RootElement.GetProperty("X").GetDouble();
+                slot.Y = (float)json.RootElement.GetProperty("Y").GetDouble();
+                slot.ZIndex = json.RootElement.GetProperty("ZIndex").GetInt32();
+                slot.Visible = json.RootElement.GetProperty("Visible").GetBoolean();
+                InvokeAsync(StateHasChanged);
+            }
+        });
+        await _hub.StartAsync();
+        await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+    }
+}
+
+<style>
+    html, body, #app { background: transparent; margin: 0; padding: 0; }
+    #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    .slot-img { position: absolute; image-rendering: auto; }
+</style>
+
+<div id="canvas">
+    @foreach (var s in _slots.Where(s => s.Visible && !string.IsNullOrEmpty(s.ImageUrl)))
+    {
+        <img class="slot-img" src="@s.ImageUrl" style="left:@(s.X)px; top:@(s.Y)px; z-index:@s.ZIndex;" alt="slot" />
+    }
+</div>
