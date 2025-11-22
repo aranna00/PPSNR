@@ -3,5 +3,6 @@
     <File Path="compose.yaml" />
   </Folder>
   <Project Path="PPSNR.Server/PPSNR.Server.csproj" />
+  <Project Path="PPSNR.Tests/PPSNR.Tests.csproj" />
   <Project Path="PPSNR/PPSNR.csproj" />
 </Solution>

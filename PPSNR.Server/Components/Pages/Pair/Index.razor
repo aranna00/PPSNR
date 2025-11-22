@@ -1,4 +1,5 @@
 ﻿@page "/pairs"
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
 @using PPSNR.Server2.Data.Entities
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -97,24 +98,11 @@
         StateHasChanged();
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var pair = new StreamerPair { Name = $"Pair {DateTime.Now:HHmmss}" };
-            db.Pairs.Add(pair);
-            var s1 = new Streamer { DisplayName = "Streamer A" };
-            var s2 = new Streamer { DisplayName = "Streamer B" };
-            db.Streamers.AddRange(s1, s2);
-            var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id };
-            var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id };
-            db.Layouts.AddRange(l1, l2);
-            // Seed 6 Pokemon slots and 16 badge slots for l1
-            for (int i = 0; i < 6; i++) db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1 });
-            for (int i = 0; i < 16; i++) db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1 });
-            // Same for l2
-            for (int i = 0; i < 6; i++) db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1 });
-            for (int i = 0; i < 16; i++) db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1 });
-            await db.SaveChangesAsync();
-            lastCreatedId = pair.Id;
-            status = $"Created pair '{pair.Name}'";
+            // Authenticated creation via API so that antiforgery and authorization are enforced
+            var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", "api/admin/pairs");
+            var json = System.Text.Json.JsonDocument.Parse(dtoText);
+            lastCreatedId = json.RootElement.GetProperty("id").GetGuid();
+            status = $"Created pair '{lastCreatedId}'";
             await Reload();
         }
         catch (Exception ex)

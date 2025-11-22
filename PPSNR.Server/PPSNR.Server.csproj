@@ -32,8 +32,6 @@
 
     <ItemGroup>
       <AdditionalFiles Include="Pages\Index.razor" />
-      <AdditionalFiles Include="Pages\NotFound.razor" />
-      <AdditionalFiles Include="Pages\_Host.cshtml" />
       <AdditionalFiles Include="Shared\MainLayout.razor" />
     </ItemGroup>
 

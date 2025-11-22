@@ -1,6 +1,4 @@
-using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Net;
-using System.Net.Http;
 using System.Security.Authentication;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -9,6 +7,7 @@ using PPSNR.Server2.Components;
 using PPSNR.Server2.Components.Account;
 using PPSNR.Server2.Data;
 using PPSNR.Server2.Services;
+using PPSNR.Server2.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +22,9 @@ builder.Services.AddScoped<AuthService>();
 // Register IHttpClientFactory for services that depend on it (e.g., ImagesCacheService)
 builder.Services.AddHttpClient();
 
+// Ensure IHttpContextAccessor is available for AuthService
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddSignalR();
 
 builder.Services
@@ -36,61 +38,59 @@ builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuth
 // Add MVC controllers for API endpoints under /api (e.g., antiforgery token, layout, images)
 builder.Services.AddControllers();
 
+// Consolidate authentication defaults. Twitch is required and is the default challenge provider.
+// Identity cookies are still used for application sign-in state.
+var twitchClientId = config["Authentication:Twitch:ClientId"];
+var twitchClientSecret = config["Authentication:Twitch:ClientSecret"];
+if (string.IsNullOrWhiteSpace(twitchClientId) || string.IsNullOrWhiteSpace(twitchClientSecret))
+{
+    throw new InvalidOperationException("Twitch authentication is required: set Authentication:Twitch:ClientId and Authentication:Twitch:ClientSecret in configuration or environment variables.");
+}
+
 builder.Services
-       .AddAuthentication
-            (options =>
-            {
-                options.DefaultScheme = IdentityConstants.ApplicationScheme;
-                options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
-            })
+       .AddAuthentication(options =>
+       {
+           // Use Identity application cookie as default scheme, Challenge goes to Twitch
+           options.DefaultScheme = IdentityConstants.ApplicationScheme;
+           options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+           options.DefaultChallengeScheme = "Twitch";
+       })
        .AddIdentityCookies();
 
-// Auth (Twitch OAuth)
-// Only register Twitch when credentials are present; otherwise run with Identity cookies only.
-var twitchClientId = config["TWITCH_CLIENT_ID"] ?? config["Authentication:Twitch:ClientId"];
-var twitchClientSecret = config["TWITCH_CLIENT_SECRET"] ?? config["Authentication:Twitch:ClientSecret"];
-
-if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twitchClientSecret))
-{
-    builder.Services
-        .AddAuthentication()
-        .AddTwitch("Twitch", options =>
-        {
-            options.ClientId = twitchClientId;
-            options.ClientSecret = twitchClientSecret;
-            options.SaveTokens = true;
-            options.CallbackPath = "/auth/twitch/callback";
-
-            // Use a hardened backchannel client to avoid TLS/HTTP version issues that can
-            // surface as TaskCanceledException during code exchange.
-            var handler = new SocketsHttpHandler
-            {
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-                SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-                {
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-                },
-                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-                ConnectTimeout = TimeSpan.FromSeconds(15)
-            };
-            options.Backchannel = new HttpClient(handler)
-            {
-                Timeout = TimeSpan.FromSeconds(60),
-                DefaultRequestVersion = HttpVersion.Version11,
-                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
-            };
-
-            // Correlation cookie must allow cross-site in external login roundtrip
-            options.CorrelationCookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.None;
-            options.CorrelationCookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
-        });
-
-    // Prefer Twitch as the default challenge only when configured.
-    builder.Services.Configure<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(o =>
+// Register Twitch unconditionally (we failed-fast above if keys were missing)
+builder.Services
+    .AddAuthentication()
+    .AddTwitch("Twitch", options =>
     {
-        o.DefaultChallengeScheme = "Twitch";
+        options.ClientId = twitchClientId!;
+        options.ClientSecret = twitchClientSecret!;
+        options.SaveTokens = true;
+        options.CallbackPath = "/auth/twitch/callback";
+
+        // Use a hardened backchannel client to avoid TLS/HTTP version issues that can
+        // surface as TaskCanceledException during code exchange.
+        var handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            ConnectTimeout = TimeSpan.FromSeconds(15)
+        };
+        options.Backchannel = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(60),
+            DefaultRequestVersion = HttpVersion.Version11,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+        };
+
+        // Correlation cookie must allow cross-site in external login roundtrip
+        options.CorrelationCookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.None;
+        options.CorrelationCookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
     });
-}
+
 
 var connectionString = builder.Configuration.GetConnectionString
                            ("DefaultConnection")
@@ -139,14 +139,22 @@ else
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
+
+app.UseRouting();
+
+// Authentication & Authorization middlewares
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseAntiforgery();
 
 app.MapStaticAssets();
 // Map API controllers so routes like /api/antiforgery/token are available
 app.MapControllers();
+// Map SignalR hub used by view/edit pages to avoid connection errors during page init
+app.MapHub<LayoutHub>("/hubs/layout");
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
-
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
 

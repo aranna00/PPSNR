@@ -1,5 +1,4 @@
 ﻿@page "/{pairId:guid}/view/{token:guid}"
-@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
 @using PPSNR.Server2.Data.Entities
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
@@ -30,24 +29,30 @@
         _layouts = Db.Layouts.Where(l => l.PairId == PairId).ToList();
         var layoutIds = _layouts.Select(l => l.Id).ToList();
         _slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId)).OrderBy(s => s.ZIndex).ToList();
+    }
 
-        _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
-        _hub.On<object>("SlotUpdated", payload =>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _authorized && _hub == null)
         {
-            var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
-            var id = json.RootElement.GetProperty("Id").GetGuid();
-            var slot = _slots.FirstOrDefault(s => s.Id == id);
-            if (slot != null)
+            _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+            _hub.On<object>("SlotUpdated", payload =>
             {
-                slot.X = (float)json.RootElement.GetProperty("X").GetDouble();
-                slot.Y = (float)json.RootElement.GetProperty("Y").GetDouble();
-                slot.ZIndex = json.RootElement.GetProperty("ZIndex").GetInt32();
-                slot.Visible = json.RootElement.GetProperty("Visible").GetBoolean();
-                InvokeAsync(StateHasChanged);
-            }
-        });
-        await _hub.StartAsync();
-        await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+                var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
+                var id = json.RootElement.GetProperty("Id").GetGuid();
+                var slot = _slots.FirstOrDefault(s => s.Id == id);
+                if (slot != null)
+                {
+                    slot.X = (float)json.RootElement.GetProperty("X").GetDouble();
+                    slot.Y = (float)json.RootElement.GetProperty("Y").GetDouble();
+                    slot.ZIndex = json.RootElement.GetProperty("ZIndex").GetInt32();
+                    slot.Visible = json.RootElement.GetProperty("Visible").GetBoolean();
+                    InvokeAsync(StateHasChanged);
+                }
+            });
+            await _hub.StartAsync();
+            await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+        }
     }
 }
 

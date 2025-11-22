@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider Auth
 @inject IJSRuntime JS
 
 <style>
@@ -54,6 +55,14 @@ else
         if (!authorized) return;
 
         pair = Db.Pairs.FirstOrDefault(p => p.Id == pairId);
+        // Owner-only: ensure current authenticated user is the owner of the pair
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (pair == null || string.IsNullOrEmpty(userId) || !string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal))
+        {
+            authorized = false;
+            return;
+        }
         layouts = Db.Layouts.Where(l => l.PairId == pairId).ToList();
         var layoutIds = layouts.Select(l => l.Id).ToList();
         slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId)).OrderBy(s => s.ZIndex).ToList();
