@@ -19,6 +19,33 @@ public class AdminController : ControllerBase
         _db = db;
     }
 
+    [HttpDelete("pairs/{pairId:guid}")]
+    // See comment on CreateSamplePair about AllowAnonymous; we manually enforce auth to avoid redirects on XHR
+    [AllowAnonymous]
+    [IgnoreAntiforgeryToken]
+    public async Task<IActionResult> DeletePair(Guid pairId, [FromServices] Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        try
+        {
+            await antiforgery.ValidateRequestAsync(HttpContext);
+        }
+        catch
+        {
+            return BadRequest();
+        }
+
+        var pair = await _db.Pairs.FirstOrDefaultAsync(p => p.Id == pairId);
+        if (pair == null) return NotFound();
+        if (!string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal)) return Forbid();
+
+        _db.Pairs.Remove(pair);
+        await _db.SaveChangesAsync();
+        return Ok(new { deleted = pairId });
+    }
+
     [HttpGet("pairs")] 
     public async Task<IActionResult> GetPairs()
     {
@@ -62,10 +89,17 @@ public class AdminController : ControllerBase
         var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id };
         var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id };
         _db.Layouts.AddRange(l1, l2);
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1 });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1 });
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1 });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1 });
+        // Owner profile slots
+        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1, Profile = SlotProfile.Owner });
+        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Owner });
+        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1, Profile = SlotProfile.Owner });
+        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1, Profile = SlotProfile.Owner });
+
+        // Partner profile slots (duplicate positions by default)
+        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1, Profile = SlotProfile.Partner });
+        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Partner });
+        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1, Profile = SlotProfile.Partner });
+        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1, Profile = SlotProfile.Partner });
         await _db.SaveChangesAsync();
         return Ok(new { pair.Id });
     }

@@ -35,7 +35,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         modelBuilder.Entity<Slot>(e =>
         {
-            e.HasIndex(s => new { s.LayoutId, s.SlotType, s.Index }).IsUnique();
+            e.HasIndex(s => new { s.LayoutId, s.SlotType, s.Index, s.Profile }).IsUnique();
         });
     }
 }

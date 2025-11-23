@@ -1,20 +1,22 @@
 ﻿@page "/pairs"
 @attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
 @using PPSNR.Server.Data.Entities
+@using System.Security.Claims
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider Auth
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @rendermode InteractiveServer
 
 <h1>Streamer Pairs</h1>
 
 <div style="margin-bottom:8px;">
-    <button @onclick="CreateSamplePair" disabled="@_busy">@(_busy ? "Creating..." : "Create Sample Pair")</button>
+    <button @onclick="CreateSamplePair" disabled="@_busy" class="btn btn-primary">@(_busy ? "Creating..." : "Create Sample Pair")</button>
     @if (!string.IsNullOrWhiteSpace(_status))
     {
         <span style="margin-left:10px; color:@(_statusIsError ? "#c00" : "#090")">@_status</span>
     }
-    <button style="margin-left:10px;" @onclick=Reload disabled="@_busy">Reload</button>
+    <button style="margin-left:10px;" @onclick=Reload disabled="@_busy" class="btn btn-secondary">Reload</button>
     <span style="margin-left:10px; color:#666">Count: @_pairs.Count</span>
     @if (_lastCreatedId != Guid.Empty)
     {
@@ -30,15 +32,28 @@
             @if (_links.TryGetValue(p.Id, out var link))
             {
                 <div>
-                    View: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
+                    Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">/@p.Id/view/@link.OwnerViewToken</a>
                 </div>
                 <div>
-                    Edit: <a href="/@p.Id/edit/@link.EditToken" target="_blank">/@p.Id/edit/@link.EditToken</a>
+                    Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">/@p.Id/edit/@link.EditToken</a>
+                </div>
+                <div>
+                    Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
+                </div>
+                <div>
+                    Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">/@p.Id/partner-edit/@link.PartnerEditToken</a>
+                </div>
+                <div style="margin-top:6px;">
+                    <button @onclick="(() => GenerateLinks(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
+                    <button style="margin-left:6px;" @onclick="(() => DeletePair(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
                 </div>
             }
             else
             {
-                <button @onclick="(() => GenerateLinks(p.Id))">Generate Links</button>
+                <div style="margin-top:6px;">
+                    <button @onclick="(() => GenerateLinks(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
+                    <button style="margin-left:6px;" @onclick="(() => DeletePair(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                </div>
             }
         </li>
     }
@@ -63,7 +78,24 @@
         {
             _busy = true;
             await using var db = await DbFactory.CreateDbContextAsync();
-            _pairs = await db.Pairs.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
+
+            // Determine current user
+            var state = await Auth.GetAuthenticationStateAsync();
+            var userId = state.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                _pairs = new List<StreamerPair>();
+                _links.Clear();
+                return;
+            }
+
+            // Only show pairs owned by the current user
+            _pairs = await db.Pairs
+                .AsNoTracking()
+                .Where(p => p.OwnerUserId == userId)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
             _links.Clear();
             var pairIds = _pairs.Select(p => p.Id).ToList();
             var existingLinks = await db.PairLinks.AsNoTracking().Where(l => pairIds.Contains(l.PairId)).ToListAsync();
@@ -86,8 +118,36 @@
         var dto = System.Text.Json.JsonDocument.Parse(dtoText);
         var viewToken = dto.RootElement.GetProperty("viewToken").GetGuid();
         var editToken = dto.RootElement.GetProperty("editToken").GetGuid();
-        _links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken };
+        var ownerViewToken = dto.RootElement.GetProperty("ownerViewToken").GetGuid();
+        var partnerEditToken = dto.RootElement.GetProperty("partnerEditToken").GetGuid();
+        _links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken, OwnerViewToken = ownerViewToken, PartnerEditToken = partnerEditToken };
         StateHasChanged();
+    }
+
+    private async Task DeletePair(Guid id)
+    {
+        _status = null;
+        _statusIsError = false;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            // Send DELETE with antiforgery
+            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/admin/pairs/{id}", "DELETE");
+            // Remove from local collections
+            _pairs = _pairs.Where(p => p.Id != id).ToList();
+            _links.Remove(id);
+        }
+        catch (Exception ex)
+        {
+            _statusIsError = true;
+            _status = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CreateSamplePair()

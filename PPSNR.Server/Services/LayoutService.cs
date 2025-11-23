@@ -27,8 +27,11 @@ public class LayoutService
         }
         else
         {
-            link.ViewToken = Guid.NewGuid();
-            link.EditToken = Guid.NewGuid();
+            // Rotate all tokens so both owner and partner get fresh links
+            link.ViewToken = Guid.NewGuid();              // Partner view
+            link.EditToken = Guid.NewGuid();              // Owner edit (back-compat)
+            link.OwnerViewToken = Guid.NewGuid();         // Owner view
+            link.PartnerEditToken = Guid.NewGuid();       // Partner edit
             link.CreatedAt = DateTime.UtcNow;
         }
         await _db.SaveChangesAsync(ct);

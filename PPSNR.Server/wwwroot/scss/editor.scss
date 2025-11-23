@@ -1,43 +1,43 @@
-﻿//$color_1: var(--editor-fg);
-//$color_2: var(--editor-accent);
-//$border-color_1: var(--editor-accent);
+﻿$color_1: var(--editor-fg);
+$color_2: var(--editor-accent);
+$border-color_1: var(--editor-accent);
 
 /* Minimal placeholder to prevent 404 and allow custom editor styling.
    Add your real styles here. */
-//:root {
-//  --editor-bg: #0f1115;
-//  --editor-fg: #e6e6e6;
-//  --editor-accent: #4dabf7;
-//}
-//body {
-//  background: var(--editor-bg);
-//  color: $color_1;
-//}
-//.editor-canvas {
-//  position: relative;
-//  width: 100%;
-//  min-height: 400px;
-//  border: 1px dashed rgba(255,255,255,0.15);
-//  background: rgba(255,255,255,0.02);
-//}
-//.editor-toolbar {
-//  display: flex;
-//  gap: .5rem;
-//  align-items: center;
-//  padding: .5rem .75rem;
-//  border: 1px solid rgba(255,255,255,0.08);
-//  background: rgba(255,255,255,0.04);
-//  border-radius: .5rem;
-//  button {
-//    background: transparent;
-//    color: $color_1;
-//    border: 1px solid rgba(255,255,255,0.15);
-//    border-radius: .375rem;
-//    padding: .35rem .65rem;
-//    cursor: pointer;
-//    &:hover {
-//      border-color: $border-color_1;
-//      color: $color_2;
-//    }
-//  }
-//}
+:root {
+  --editor-bg: #0f1115;
+  --editor-fg: #e6e6e6;
+  --editor-accent: #4dabf7;
+}
+body {
+  background: var(--editor-bg);
+  color: $color_1;
+}
+.editor-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 400px;
+  border: 1px dashed rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.02);
+}
+.editor-toolbar {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  padding: .5rem .75rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  border-radius: .5rem;
+  button {
+    background: transparent;
+    color: $color_1;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: .375rem;
+    padding: .35rem .65rem;
+    cursor: pointer;
+    &:hover {
+      border-color: $border-color_1;
+      color: $color_2;
+    }
+  }
+}

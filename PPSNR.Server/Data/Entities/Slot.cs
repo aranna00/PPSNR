@@ -8,6 +8,12 @@ public enum SlotType
     Badge = 1
 }
 
+public enum SlotProfile
+{
+    Owner = 0,
+    Partner = 1
+}
+
 public class Slot
 {
     [Key]
@@ -19,6 +25,8 @@ public class Slot
 
     public SlotType SlotType { get; set; }
     public int Index { get; set; }
+
+    public SlotProfile Profile { get; set; } = SlotProfile.Owner;
 
     [MaxLength(1000)]
     public string? ImageUrl { get; set; }

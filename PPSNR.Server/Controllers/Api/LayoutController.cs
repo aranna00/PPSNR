@@ -29,7 +29,7 @@ public class LayoutController : ControllerBase
         var pair = await _db.Pairs.FindAsync(pairId);
         if (pair == null) return NotFound();
         var link = await _layoutService.CreateOrRotatePairLinkAsync(pairId);
-        return Ok(new { link.ViewToken, link.EditToken });
+        return Ok(new { link.ViewToken, link.EditToken, ownerViewToken = link.OwnerViewToken, partnerEditToken = link.PartnerEditToken });
     }
 
     // Endpoint to issue and return an antiforgery request token and set the antiforgery cookie in the browser.
@@ -68,21 +68,129 @@ public class LayoutController : ControllerBase
             return BadRequest();
         }
 
-         var updated = await _layoutService.UpdateSlotAsync(pairId, incoming);
-         if (updated == null) return NotFound();
+        // Ensure we only update owner-profile slots
+        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId && s.Profile == SlotProfile.Owner);
+        if (existing == null) return NotFound();
+
+        // Update owner-profile slot: positions are owner-specific; content is shared
+        existing.X = incoming.X;
+        existing.Y = incoming.Y;
+        existing.ZIndex = incoming.ZIndex;
+        existing.Visible = incoming.Visible;                 // shared
+        existing.ImageUrl = incoming.ImageUrl;               // shared
+        existing.AdditionalProperties = incoming.AdditionalProperties; // shared
+        existing.SlotType = incoming.SlotType;
+        existing.Index = incoming.Index;
+        await _db.SaveChangesAsync();
+
+        // Propagate shared fields to partner-profile counterpart (same Layout/Type/Index)
+        var partnerCounterpart = await _db.Slots.FirstOrDefaultAsync(s => s.LayoutId == layoutId
+                                                                          && s.SlotType == existing.SlotType
+                                                                          && s.Index == existing.Index
+                                                                          && s.Profile == SlotProfile.Partner);
+        if (partnerCounterpart != null)
+        {
+            partnerCounterpart.Visible = existing.Visible;
+            partnerCounterpart.ImageUrl = existing.ImageUrl;
+            partnerCounterpart.AdditionalProperties = existing.AdditionalProperties;
+            await _db.SaveChangesAsync();
+        }
+
+        // Broadcast to viewers of this pair (both affected slots)
+        await _layoutService.UpdateSlotAsync(pairId, existing);
+        if (partnerCounterpart != null)
+        {
+            await _layoutService.UpdateSlotAsync(pairId, partnerCounterpart);
+        }
+
          // Return a DTO to avoid potential JSON cycles on EF navigation properties
          return Ok(new
          {
-             updated.Id,
-             updated.LayoutId,
-             updated.X,
-             updated.Y,
-             updated.ZIndex,
-             updated.Visible,
-             updated.ImageUrl,
-             updated.SlotType,
-             updated.Index,
-             updated.AdditionalProperties
+             existing.Id,
+             existing.LayoutId,
+             existing.X,
+             existing.Y,
+             existing.ZIndex,
+             existing.Visible,
+             existing.ImageUrl,
+             existing.SlotType,
+             existing.Index,
+             existing.AdditionalProperties
          });
      }
+
+    // Partner editing endpoint: token-authenticated, anonymous, antiforgery required
+    [HttpPost("partner/{token:guid}/pairs/{pairId:guid}/layouts/{layoutId:guid}/slots/{slotId:guid}")]
+    [AllowAnonymous]
+    [IgnoreAntiforgeryToken]
+    public async Task<IActionResult> UpdateSlotAsPartner(Guid token, Guid pairId, Guid layoutId, Guid slotId, [FromBody] Slot incoming, [FromServices] Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery)
+    {
+        if (slotId != incoming.Id) return BadRequest();
+
+        // Validate antiforgery
+        try
+        {
+            await antiforgery.ValidateRequestAsync(HttpContext);
+        }
+        catch
+        {
+            return BadRequest();
+        }
+
+        // Validate link token for partner edit
+        var link = await _db.PairLinks.AsNoTracking().FirstOrDefaultAsync(l => l.PairId == pairId);
+        if (link == null || link.PartnerEditToken != token || (link.ExpiresAt != null && link.ExpiresAt <= DateTime.UtcNow))
+            return Forbid();
+
+        var layout = await _db.Layouts.AsNoTracking().FirstOrDefaultAsync(l => l.Id == layoutId && l.PairId == pairId);
+        if (layout == null) return NotFound();
+
+        // Ensure we only update partner-profile slots
+        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId && s.Profile == SlotProfile.Partner);
+        if (existing == null) return NotFound();
+
+        // Apply incoming values (positions are partner-specific; content is shared)
+        existing.X = incoming.X;
+        existing.Y = incoming.Y;
+        existing.ZIndex = incoming.ZIndex;
+        existing.Visible = incoming.Visible;                 // shared
+        existing.ImageUrl = incoming.ImageUrl;               // shared
+        existing.AdditionalProperties = incoming.AdditionalProperties; // shared
+
+        await _db.SaveChangesAsync();
+
+        // Propagate shared fields to owner-profile counterpart (same Layout/Type/Index)
+        var ownerCounterpart = await _db.Slots.FirstOrDefaultAsync(s => s.LayoutId == layoutId
+                                                                         && s.SlotType == existing.SlotType
+                                                                         && s.Index == existing.Index
+                                                                         && s.Profile == SlotProfile.Owner);
+        if (ownerCounterpart != null)
+        {
+            ownerCounterpart.Visible = existing.Visible;
+            ownerCounterpart.ImageUrl = existing.ImageUrl;
+            ownerCounterpart.AdditionalProperties = existing.AdditionalProperties;
+            await _db.SaveChangesAsync();
+        }
+
+        // Broadcast to viewers of this pair (both affected slots)
+        await _layoutService.UpdateSlotAsync(pairId, existing);
+        if (ownerCounterpart != null)
+        {
+            await _layoutService.UpdateSlotAsync(pairId, ownerCounterpart);
+        }
+
+        return Ok(new
+        {
+            existing.Id,
+            existing.LayoutId,
+            existing.X,
+            existing.Y,
+            existing.ZIndex,
+            existing.Visible,
+            existing.ImageUrl,
+            existing.SlotType,
+            existing.Index,
+            existing.AdditionalProperties
+        });
+    }
  }

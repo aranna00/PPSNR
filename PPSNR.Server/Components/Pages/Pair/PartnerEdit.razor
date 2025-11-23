@@ -1,9 +1,8 @@
-﻿@page "/{pairId:guid}/edit/{token:guid}"
+﻿@page "/{pairId:guid}/partner-edit/{token:guid}"
 @using PPSNR.Server.Data.Entities
-@attribute [Authorize]
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
-@inject AuthenticationStateProvider Auth
 @inject IJSRuntime JS
 
 <style>
@@ -11,11 +10,12 @@
     #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
     .drag { position: absolute; touch-action: none; cursor: move; }
     .hud { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.5); color: white; padding: 6px 10px; border-radius: 6px; font-family: sans-serif; }
+    .err { background: rgba(128,0,0,0.6); }
 </style>
 
 @if (!authorized)
 {
-    <div class="hud">Forbidden. Invalid token.</div>
+    <div class="hud err">Forbidden. Invalid token.</div>
 }
 else if (layouts is null)
 {
@@ -24,7 +24,7 @@ else if (layouts is null)
 else
 {
     <div class="hud">
-        <b>@pair?.Name</b> — Drag images to reposition. Changes auto-save.
+        <b>@pair?.Name</b> — Drag images to reposition (Partner).
     </div>
     <div id="canvas" data-pair-id="@pairId">
         @foreach (var l in layouts)
@@ -49,28 +49,26 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        // Validate edit token
+        // Validate partner edit token
         var link = Db.PairLinks.FirstOrDefault(l => l.PairId == pairId);
-        authorized = link != null && link.EditToken == token && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow);
+        authorized = link != null && link.PartnerEditToken == token && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow);
         if (!authorized) return;
 
         pair = Db.Pairs.FirstOrDefault(p => p.Id == pairId);
-        // Owner-only: ensure current authenticated user is the owner of the pair
-        var state = await Auth.GetAuthenticationStateAsync();
-        var userId = state.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (pair == null || string.IsNullOrEmpty(userId) || !string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal))
+        if (pair == null)
         {
             authorized = false;
             return;
         }
+
         layouts = Db.Layouts.Where(l => l.PairId == pairId).ToList();
         var layoutIds = layouts.Select(l => l.Id).ToList();
-        // Load only owner-profile slots for owner editor
-        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == SlotProfile.Owner)
+        // Load only partner-profile slots for partner editor
+        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == SlotProfile.Partner)
                         .OrderBy(s => s.ZIndex)
                         .ToList();
 
-        // SignalR to see live updates from other editors
+        // SignalR for live updates
         hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
         hub.On<object>("SlotUpdated", payload =>
         {
@@ -94,7 +92,9 @@ else
     {
         if (firstRender && authorized)
         {
-            await JS.InvokeVoidAsync("PPSNR_Drag.init", "/api", pairId.ToString());
+            // Use partner API base with token for server-side validation
+            var apiBase = $"/api/partner/{token}";
+            await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
         }
     }
 }
