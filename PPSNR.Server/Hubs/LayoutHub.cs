@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 
-namespace PPSNR.Server2.Hubs;
+namespace PPSNR.Server.Hubs;
 
 public class LayoutHub : Hub
 {

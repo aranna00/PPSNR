@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
-namespace PPSNR.Server2.Controllers;
+namespace PPSNR.Server.Controllers;
 
 [ApiController]
 [Route("auth")] 

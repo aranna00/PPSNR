@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace PPSNR.Server2.Data.Entities;
+namespace PPSNR.Server.Data.Entities;
 
 public enum SlotType
 {

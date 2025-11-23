@@ -3,11 +3,11 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using PPSNR.Server2.Data;
+using PPSNR.Server.Data;
 
 #nullable disable
 
-namespace PPSNR.Server2.Migrations
+namespace PPSNR.Server.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
     partial class ApplicationDbContextModelSnapshot : ModelSnapshot
@@ -166,7 +166,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.ApplicationUser", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.ApplicationUser", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
@@ -231,7 +231,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Layout", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -273,7 +273,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("Layouts");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.PairLink", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.PairLink", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -301,7 +301,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("PairLinks");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Slot", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Slot", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -343,7 +343,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("Slots");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Streamer", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Streamer", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -369,7 +369,7 @@ namespace PPSNR.Server2.Migrations
                     b.ToTable("Streamers");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.StreamerPair", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.StreamerPair", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -403,7 +403,7 @@ namespace PPSNR.Server2.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.ApplicationUser", null)
+                    b.HasOne("PPSNR.Server.Data.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -412,7 +412,7 @@ namespace PPSNR.Server2.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.ApplicationUser", null)
+                    b.HasOne("PPSNR.Server.Data.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -421,7 +421,7 @@ namespace PPSNR.Server2.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserPasskey<string>", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.ApplicationUser", null)
+                    b.HasOne("PPSNR.Server.Data.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -476,7 +476,7 @@ namespace PPSNR.Server2.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("PPSNR.Server2.Data.ApplicationUser", null)
+                    b.HasOne("PPSNR.Server.Data.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -485,22 +485,22 @@ namespace PPSNR.Server2.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.ApplicationUser", null)
+                    b.HasOne("PPSNR.Server.Data.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Layout", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.Entities.StreamerPair", "Pair")
+                    b.HasOne("PPSNR.Server.Data.Entities.StreamerPair", "Pair")
                         .WithMany("Layouts")
                         .HasForeignKey("PairId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("PPSNR.Server2.Data.Entities.Streamer", "Streamer")
+                    b.HasOne("PPSNR.Server.Data.Entities.Streamer", "Streamer")
                         .WithMany("Layouts")
                         .HasForeignKey("StreamerId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -511,9 +511,9 @@ namespace PPSNR.Server2.Migrations
                     b.Navigation("Streamer");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.PairLink", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.PairLink", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.Entities.StreamerPair", "Pair")
+                    b.HasOne("PPSNR.Server.Data.Entities.StreamerPair", "Pair")
                         .WithMany("Links")
                         .HasForeignKey("PairId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -522,9 +522,9 @@ namespace PPSNR.Server2.Migrations
                     b.Navigation("Pair");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Slot", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Slot", b =>
                 {
-                    b.HasOne("PPSNR.Server2.Data.Entities.Layout", "Layout")
+                    b.HasOne("PPSNR.Server.Data.Entities.Layout", "Layout")
                         .WithMany("Slots")
                         .HasForeignKey("LayoutId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -533,17 +533,17 @@ namespace PPSNR.Server2.Migrations
                     b.Navigation("Layout");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Layout", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>
                 {
                     b.Navigation("Slots");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.Streamer", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.Streamer", b =>
                 {
                     b.Navigation("Layouts");
                 });
 
-            modelBuilder.Entity("PPSNR.Server2.Data.Entities.StreamerPair", b =>
+            modelBuilder.Entity("PPSNR.Server.Data.Entities.StreamerPair", b =>
                 {
                     b.Navigation("Layouts");
 

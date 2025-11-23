@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using PPSNR.Server2.Data.Entities;
+using PPSNR.Server.Data.Entities;
 
-namespace PPSNR.Server2.Data;
+namespace PPSNR.Server.Data;
 
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser>(options)
 {

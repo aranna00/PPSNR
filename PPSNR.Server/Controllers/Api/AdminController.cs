@@ -1,11 +1,11 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using PPSNR.Server2.Data;
-using PPSNR.Server2.Data.Entities;
+using PPSNR.Server.Data;
+using PPSNR.Server.Data.Entities;
 using System.Security.Claims;
 
-namespace PPSNR.Server2.Controllers.Api;
+namespace PPSNR.Server.Controllers.Api;
 
 [ApiController]
 [Route("api/admin")] 

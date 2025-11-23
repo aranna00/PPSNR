@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
-using PPSNR.Server2.Data;
+using PPSNR.Server.Data;
 
-namespace PPSNR.Server2.Components.Account;
+namespace PPSNR.Server.Components.Account;
 
 internal sealed class IdentityRedirectManager(NavigationManager navigationManager)
 {

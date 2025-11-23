@@ -1,4 +1,4 @@
-namespace PPSNR.Server2.Components.Account;
+namespace PPSNR.Server.Components.Account;
 
 public class PasskeyInputModel
 {

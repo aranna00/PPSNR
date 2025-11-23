@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace PPSNR.Server2.Controllers.Api;
+namespace PPSNR.Server.Controllers.Api;
 
 [ApiController]
 [Route("api/images")]

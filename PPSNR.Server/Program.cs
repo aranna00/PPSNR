@@ -3,11 +3,11 @@ using System.Security.Authentication;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using PPSNR.Server2.Components;
-using PPSNR.Server2.Components.Account;
-using PPSNR.Server2.Data;
-using PPSNR.Server2.Services;
-using PPSNR.Server2.Hubs;
+using PPSNR.Server.Components;
+using PPSNR.Server.Components.Account;
+using PPSNR.Server.Data;
+using PPSNR.Server.Services;
+using PPSNR.Server.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -64,8 +64,8 @@ builder.Services
     .AddAuthentication()
     .AddTwitch("Twitch", options =>
     {
-        options.ClientId = twitchClientId!;
-        options.ClientSecret = twitchClientSecret!;
+        options.ClientId = twitchClientId;
+        options.ClientSecret = twitchClientSecret;
         options.SaveTokens = true;
         options.CallbackPath = "/auth/twitch/callback";
 

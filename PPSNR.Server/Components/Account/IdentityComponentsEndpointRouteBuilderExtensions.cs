@@ -7,11 +7,11 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
-using PPSNR.Server2.Components.Account.Pages;
-using PPSNR.Server2.Components.Account.Pages.Manage;
-using PPSNR.Server2.Data;
+using PPSNR.Server.Components.Account.Pages;
+using PPSNR.Server.Components.Account.Pages.Manage;
+using PPSNR.Server.Data;
 
-namespace PPSNR.Server2.Components.Account;
+namespace PPSNR.Server.Components.Account;
 
 internal static class IdentityComponentsEndpointRouteBuilderExtensions
 {

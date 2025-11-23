@@ -1,6 +1,6 @@
 ﻿using System.Security.Claims;
 
-namespace PPSNR.Server2.Services;
+namespace PPSNR.Server.Services;
 
 public class AuthService
 {

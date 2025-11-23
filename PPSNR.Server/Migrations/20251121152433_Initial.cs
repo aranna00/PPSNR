@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace PPSNR.Server2.Migrations
+namespace PPSNR.Server.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration

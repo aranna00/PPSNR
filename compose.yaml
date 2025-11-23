@@ -9,11 +9,5 @@
       - "8080:8080"
     build:
       context: .
-      dockerfile: src/PPSNR.Server/Dockerfile
-
-  ppsnr.server2:
-    image: ppsnr.server2
-    build:
-      context: .
-      dockerfile: PPSNR.Server2/Dockerfile
+      dockerfile: PPSNR.Server/Dockerfile
 

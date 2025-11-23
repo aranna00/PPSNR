@@ -7,7 +7,7 @@
     <base href="/"/>
     <ResourcePreloader/>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]"/>
-    <link rel="stylesheet" href="@Assets["app.css"]"/>
+    <link rel="stylesheet" href="@Assets["app.min.css"]"/>
     <link rel="stylesheet" href="@Assets["PPSNR.Server.styles.css"]"/>
     <ImportMap/>
     <link rel="icon" type="image/png" href="favicon.png"/>
@@ -19,6 +19,8 @@
 <ReconnectModal/>
 <script src="@Assets["_framework/blazor.web.js"]"></script>
 <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
+<script src="js/antiforgery.js"></script>
+<script src="lib/bootstrap/dist/js/bootstrap.js"></script>
 </body>
 
 </html>

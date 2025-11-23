@@ -7,7 +7,7 @@
         <UserSecretsId>aspnet-PPSNR_Server2-d3c00b96-e567-41c2-97cc-488c626e9394</UserSecretsId>
         <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-        <RootNamespace>PPSNR.Server2</RootNamespace>
+        <RootNamespace>PPSNR.Server</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
@@ -37,6 +37,7 @@
 
     <ItemGroup>
       <Folder Include="wwwroot\resources\" />
+      <Folder Include="wwwroot\source\" />
     </ItemGroup>
 
 </Project>

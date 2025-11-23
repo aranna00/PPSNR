@@ -11,8 +11,8 @@ using FluentAssertions.Execution;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
-using PPSNR.Server2.Data;
-using PPSNR.Server2.Data.Entities;
+using PPSNR.Server.Data;
+using PPSNR.Server.Data.Entities;
 
 namespace PPSNR.Tests;
 

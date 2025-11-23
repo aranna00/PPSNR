@@ -1,10 +1,10 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using PPSNR.Server2.Data;
-using PPSNR.Server2.Data.Entities;
-using PPSNR.Server2.Hubs;
+using PPSNR.Server.Data;
+using PPSNR.Server.Data.Entities;
+using PPSNR.Server.Hubs;
 
-namespace PPSNR.Server2.Services;
+namespace PPSNR.Server.Services;
 
 public class LayoutService
 {
