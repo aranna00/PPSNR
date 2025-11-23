@@ -16,7 +16,7 @@
     {
         <span style="margin-left:10px; color:@(_statusIsError ? "#c00" : "#090")">@_status</span>
     }
-    <button style="margin-left:10px;" @onclick=Reload disabled="@_busy" class="btn btn-secondary">Reload</button>
+    <button style="margin-left:10px;" @onclick="Reload" disabled="@_busy" class="btn btn-secondary">Reload</button>
     <span style="margin-left:10px; color:#666">Count: @_pairs.Count</span>
     @if (_lastCreatedId != Guid.Empty)
     {
@@ -38,10 +38,16 @@
                     Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">/@p.Id/edit/@link.EditToken</a>
                 </div>
                 <div>
+                    Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">/@p.Id/select/@link.EditToken</a>
+                </div>
+                <div>
                     Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
                 </div>
                 <div>
                     Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">/@p.Id/partner-edit/@link.PartnerEditToken</a>
+                </div>
+                <div>
+                    Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">/@p.Id/select/@link.PartnerEditToken</a>
                 </div>
                 <div style="margin-top:6px;">
                     <button @onclick="(() => GenerateLinks(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>

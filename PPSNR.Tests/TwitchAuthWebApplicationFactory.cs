@@ -77,7 +77,7 @@ public class TwitchAuthWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             // Replace the Twitch scheme handler type with our fake one that signs in immediately.
-            services.PostConfigureAll<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(opts =>
+            services.PostConfigureAll<AuthenticationOptions>(opts =>
             {
                 var scheme = opts.Schemes.FirstOrDefault(s => s.Name == "Twitch");
                 if (scheme != null)

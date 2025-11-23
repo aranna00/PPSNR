@@ -1,7 +1,25 @@
 ﻿@page "/{pairId:guid}/view/{token:guid}"
+@layout EmptyLayout
+@using System.Collections.Generic
+@using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
+@inject PPSNR.Server.Services.ImagesCacheService ImagesCache
+
+
+<style>
+    html, body, #app { background: transparent; margin: 0; padding: 0; }
+    #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    .slot-img { position: absolute; image-rendering: auto; }
+</style>
+
+<div id="canvas">
+    @foreach (var s in _slots.Where(s => s.Visible && !string.IsNullOrEmpty(s.ImageUrl)))
+    {
+        <img class="slot-img" src="@s.ImageUrl" style="left:@(s.X)px; top:@(s.Y)px; z-index:@s.ZIndex;" alt="slot"/>
+    }
+</div>
 
 @code {
     [Parameter] public Guid PairId { get; set; }
@@ -52,6 +70,9 @@
         _slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == _viewProfile)
                          .OrderBy(s => s.ZIndex)
                          .ToList();
+
+        // Normalize any legacy or external ImageUrl values so images render
+        await NormalizeSlotImagesAsync(_slots);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -61,33 +82,114 @@
             _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
             _hub.On<object>("SlotUpdated", payload =>
             {
-                var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
-                var id = json.RootElement.GetProperty("Id").GetGuid();
-                var slot = _slots.FirstOrDefault(s => s.Id == id);
-                if (slot != null)
+                try
                 {
-                    slot.X = (float)json.RootElement.GetProperty("X").GetDouble();
-                    slot.Y = (float)json.RootElement.GetProperty("Y").GetDouble();
-                    slot.ZIndex = json.RootElement.GetProperty("ZIndex").GetInt32();
-                    slot.Visible = json.RootElement.GetProperty("Visible").GetBoolean();
-                    InvokeAsync(StateHasChanged);
+                    Guid id;
+                    float? x = null;
+                    float? y = null;
+                    int? z = null;
+                    bool? vis = null;
+                    string? img = null;
+                    bool imgPresent = false;
+
+                    if (payload is System.Text.Json.JsonElement el)
+                    {
+                        if (!TryGetPropertyCI(el, "Id", out var idProp)) return;
+                        id = idProp.GetGuid();
+                        if (TryGetPropertyCI(el, "X", out var xProp)) x = (float)xProp.GetDouble();
+                        if (TryGetPropertyCI(el, "Y", out var yProp)) y = (float)yProp.GetDouble();
+                        if (TryGetPropertyCI(el, "ZIndex", out var zProp)) z = zProp.GetInt32();
+                        if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
+                        if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                    }
+                    else if (payload is IDictionary<string, object> dict)
+                    {
+                        if (!TryGetValueCI(dict, "Id", out var idObj) || idObj is null || !Guid.TryParse(idObj.ToString(), out id)) return;
+                        if (TryGetValueCI(dict, "X", out var xObj) && float.TryParse(xObj?.ToString(), out var xv)) x = xv;
+                        if (TryGetValueCI(dict, "Y", out var yObj) && float.TryParse(yObj?.ToString(), out var yv)) y = yv;
+                        if (TryGetValueCI(dict, "ZIndex", out var zObj) && int.TryParse(zObj?.ToString(), out var zv)) z = zv;
+                        if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
+                        if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
+                    }
+                    else
+                    {
+                        var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
+                        if (!TryGetPropertyCI(json.RootElement, "Id", out var idProp)) return;
+                        id = idProp.GetGuid();
+                        if (TryGetPropertyCI(json.RootElement, "X", out var xProp)) x = (float)xProp.GetDouble();
+                        if (TryGetPropertyCI(json.RootElement, "Y", out var yProp)) y = (float)yProp.GetDouble();
+                        if (TryGetPropertyCI(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
+                        if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
+                        if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                    }
+
+                    var slot = _slots.FirstOrDefault(s => s.Id == id);
+                    if (slot != null)
+                    {
+                        if (x.HasValue) slot.X = x.Value;
+                        if (y.HasValue) slot.Y = y.Value;
+                        if (z.HasValue) slot.ZIndex = z.Value;
+                        if (vis.HasValue) slot.Visible = vis.Value;
+                        if (imgPresent) slot.ImageUrl = img;
+                        InvokeAsync(StateHasChanged);
+                    }
+                }
+                catch
+                {
+                    // ignore malformed event
                 }
             });
             await _hub.StartAsync();
             await _hub.SendAsync("SubscribeToPair", PairId.ToString());
         }
     }
+
+    private async Task NormalizeSlotImagesAsync(IEnumerable<Slot> list)
+    {
+        var changed = false;
+        foreach (var s in list)
+        {
+            if (!string.IsNullOrWhiteSpace(s.ImageUrl))
+            {
+                var url = s.ImageUrl!;
+                if (!url.StartsWith("/"))
+                {
+                    try
+                    {
+                        var normalized = await ImagesCache.GetCachedImageUrlAsync(url);
+                        if (!string.Equals(normalized, url, StringComparison.Ordinal))
+                        {
+                            s.ImageUrl = normalized;
+                            changed = true;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore and keep original
+                    }
+                }
+            }
+        }
+        if (changed)
+        {
+            await Db.SaveChangesAsync();
+        }
+    }
 }
 
-<style>
-    html, body, #app { background: transparent; margin: 0; padding: 0; }
-    #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-    .slot-img { position: absolute; image-rendering: auto; }
-</style>
-
-<div id="canvas">
-    @foreach (var s in _slots.Where(s => s.Visible && !string.IsNullOrEmpty(s.ImageUrl)))
+@code {
+    private static bool TryGetPropertyCI(System.Text.Json.JsonElement el, string name, out System.Text.Json.JsonElement prop)
     {
-        <img class="slot-img" src="@s.ImageUrl" style="left:@(s.X)px; top:@(s.Y)px; z-index:@s.ZIndex;" alt="slot" />
+        if (el.TryGetProperty(name, out prop)) return true;
+        var camel = LowerFirst(name);
+        return el.TryGetProperty(camel, out prop);
     }
-</div>
+    private static bool TryGetValueCI(IDictionary<string, object> dict, string name, out object? value)
+    {
+        if (dict.TryGetValue(name, out value)) return true;
+        var camel = LowerFirst(name);
+        return dict.TryGetValue(camel, out value);
+    }
+    private static string LowerFirst(string s)
+        => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s.Substring(1);
+}

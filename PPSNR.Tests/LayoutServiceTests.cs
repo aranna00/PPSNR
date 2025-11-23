@@ -21,12 +21,12 @@ public class LayoutServiceTests
         var connection = new Microsoft.Data.Sqlite.SqliteConnection("DataSource=:memory:");
         connection.Open();
 
-        var options = new DbContextOptionsBuilder<PPSNR.Server.Data.ApplicationDbContext>()
+        var options = new DbContextOptionsBuilder<Server.Data.ApplicationDbContext>()
             .UseSqlite(connection)
             .Options;
 
         // Create schema
-        using (var ctx = new PPSNR.Server.Data.ApplicationDbContext(options))
+        using (var ctx = new Server.Data.ApplicationDbContext(options))
         {
             ctx.Database.EnsureCreated();
             var pairId = Guid.NewGuid();
@@ -49,9 +49,9 @@ public class LayoutServiceTests
         var mockHub = new Mock<IHubContext<LayoutHub>>();
         mockHub.Setup(h => h.Clients).Returns(mockClients.Object);
 
-        using (var ctx = new PPSNR.Server.Data.ApplicationDbContext(options))
+        using (var ctx = new Server.Data.ApplicationDbContext(options))
         {
-            var service = new PPSNR.Server.Services.LayoutService(ctx, mockHub.Object);
+            var service = new Server.Services.LayoutService(ctx, mockHub.Object);
             var existing = await ctx.Slots.Include(s => s.Layout).FirstAsync();
             existing.X = 10;
             existing.Y = 20;
@@ -68,7 +68,7 @@ public class LayoutServiceTests
         // Verify DB updated
         using var scope = new AssertionScope();
 
-        await using (var ctx = new PPSNR.Server.Data.ApplicationDbContext(options))
+        await using (var ctx = new Server.Data.ApplicationDbContext(options))
         {
             var s = await ctx.Slots.FirstAsync();
             s.X.Should().Be(10);

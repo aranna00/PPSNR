@@ -1,0 +1,416 @@
+@page "/{pairId:guid}/select/{token:guid}"
+@using PPSNR.Server.Data.Entities
+@attribute [Authorize]
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider Auth
+@inject IJSRuntime JS
+@inject Services.LayoutService LayoutSvc
+@rendermode InteractiveServer
+
+<div class="container-fluid py-4">
+    @if (!_authorized)
+    {
+        <div class="alert alert-danger">Forbidden. Invalid token or you don't have access.</div>
+    }
+    else if (_pair == null)
+    {
+        <div class="alert alert-info">Loading...</div>
+    }
+    else
+    {
+        <h2>@_pair.Name - Pokemon & Badge Selection</h2>
+        <p class="text-muted">Profile: <strong>@(_isOwner ? "Owner" : "Partner")</strong></p>
+
+        @if (!string.IsNullOrEmpty(_statusMessage))
+        {
+            <div class="alert @(_statusIsError ? "alert-danger" : "alert-success")">@_statusMessage</div>
+        }
+
+        <ul class="nav nav-tabs mb-3">
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "pokemon" ? "active" : "")" @onclick='() => SetActiveTab("pokemon")'>
+                    Pokemon Slots
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "badges" ? "active" : "")" @onclick='() => SetActiveTab("badges")'>
+                    Badge Slots
+                </button>
+            </li>
+        </ul>
+
+        @if (_activeTab == "pokemon")
+        {
+            <h3>Pokemon Slots</h3>
+            <div class="row">
+                @foreach (var slot in _pokemonSlots)
+                {
+                    <div class="col-md-4 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Slot @slot.Index</h5>
+                                @if (!string.IsNullOrEmpty(slot.ImageUrl))
+                                {
+                                    <img src="@slot.ImageUrl" alt="Pokemon" class="img-fluid mb-2" style="max-height: 150px;" />
+                                }
+
+                                <div class="mb-2 position-relative">
+                                    <input class="form-control" placeholder="Search Pokemon by name or #number" value="@GetSearchText(slot.Id)"
+                                           @oninput="(e) => OnSearchChanged(slot.Id, e.Value?.ToString())"
+                                           @onfocus="() => SetDropdownOpen(slot.Id, true)"
+                                           @onblur="() => OnSearchBlur(slot.Id)" />
+                                    @if (IsDropdownOpen(slot.Id))
+                                    {
+                                        <div class="list-group position-absolute w-100" style="z-index: 1000; max-height: 240px; overflow:auto;">
+                                            @foreach (var p in FilterPokemon(GetSearchText(slot.Id)).Take(20))
+                                            {
+                                                <button type="button" class="list-group-item list-group-item-action d-flex align-items-center"
+                                                        @onclick="() => SelectPokemon(slot, p)">
+                                                    <img src="@p.IconUrl" alt="@p.Name" style="width:32px;height:32px;image-rendering: pixelated;" class="me-2" />
+                                                    <span class="text-nowrap">#@p.Id.ToString("000") @p.DisplayName</span>
+                                                </button>
+                                            }
+                                            @if (!FilterPokemon(GetSearchText(slot.Id)).Any())
+                                            {
+                                                <div class="list-group-item text-muted">No matches</div>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="d-flex gap-2 mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ClearPokemon(slot)">Clear</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => SetDropdownOpen(slot.Id, true)">Open list</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="visible-@slot.Id" checked="@slot.Visible" @onchange="e => UpdateSlotVisibility(slot, (bool)(e.Value ?? false))" />
+                                    <label class="form-check-label" for="visible-@slot.Id">Visible</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else if (_activeTab == "badges")
+        {
+            <h3>Badge Slots</h3>
+            <div class="row">
+                @foreach (var slot in _badgeSlots)
+                {
+                    <div class="col-md-3 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h5 class="card-title">Badge @slot.Index</h5>
+                                @if (!string.IsNullOrEmpty(slot.ImageUrl))
+                                {
+                                    <img src="@slot.ImageUrl" alt="Badge" class="img-fluid mb-2" style="max-height: 100px;" />
+                                }
+                                <input type="text" class="form-control mb-2" placeholder="Image URL" value="@slot.ImageUrl" @onchange="e => UpdateSlotImage(slot, e.Value?.ToString())" />
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="visible-@slot.Id" checked="@slot.Visible" @onchange="e => UpdateSlotVisibility(slot, (bool)(e.Value ?? false))" />
+                                    <label class="form-check-label" for="visible-@slot.Id">Visible</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid PairId { get; set; }
+    [Parameter] public Guid Token { get; set; }
+
+    private bool _authorized;
+    private bool _isOwner;
+    private StreamerPair? _pair;
+    private List<Slot> _pokemonSlots = [];
+    private List<Slot> _badgeSlots = [];
+    private string _activeTab = "pokemon";
+    private string? _statusMessage;
+    private bool _statusIsError;
+    private HubConnection? _hub;
+
+    // Pokemon data and UI state
+    private static List<PokemonListItem>? _allPokemonCache;
+    private static DateTime _pokemonCacheTime;
+    private readonly Dictionary<Guid, string> _searchTexts = new();
+    private readonly HashSet<Guid> _dropdownOpen = new();
+    [Inject] private IHttpClientFactory HttpFactory { get; set; } = default!;
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Validate token: accept either EditToken (owner) or PartnerEditToken (partner)
+        var link = Db.PairLinks.FirstOrDefault(l => l.PairId == PairId);
+        if (link != null && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow))
+        {
+            if (link.EditToken == Token)
+            {
+                _isOwner = true;
+                // Verify owner
+                var state = await Auth.GetAuthenticationStateAsync();
+                var userId = state.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                _pair = Db.Pairs.FirstOrDefault(p => p.Id == PairId);
+                _authorized = _pair != null && !string.IsNullOrEmpty(userId) && string.Equals(_pair.OwnerUserId, userId, StringComparison.Ordinal);
+            }
+            else if (link.PartnerEditToken == Token)
+            {
+                _isOwner = false;
+                _authorized = true;
+                _pair = Db.Pairs.FirstOrDefault(p => p.Id == PairId);
+            }
+        }
+
+        if (!_authorized) return;
+
+        var profile = _isOwner ? SlotProfile.Owner : SlotProfile.Partner;
+        var layouts = Db.Layouts.Where(l => l.PairId == PairId).ToList();
+        var layoutIds = layouts.Select(l => l.Id).ToList();
+        var allSlots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == profile).OrderBy(s => s.Index).ToList();
+
+        _pokemonSlots = allSlots.Where(s => s.SlotType == SlotType.Pokemon).ToList();
+        _badgeSlots = allSlots.Where(s => s.SlotType == SlotType.Badge).ToList();
+
+        // SignalR for live updates
+        _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+        _hub.On<object>("SlotUpdated", payload =>
+        {
+            try
+            {
+                Guid id;
+                string? imageUrl = null;
+                bool? visible = null;
+
+                // Handle payload when it comes as JsonElement
+                if (payload is System.Text.Json.JsonElement el)
+                {
+                    if (!el.TryGetProperty("Id", out var idProp)) return; // unknown payload, ignore
+                    id = idProp.GetGuid();
+                    if (el.TryGetProperty("ImageUrl", out var imgProp)) imageUrl = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString();
+                    if (el.TryGetProperty("Visible", out var visProp)) visible = visProp.GetBoolean();
+                }
+                // Handle payload when it comes as a dictionary (e.g., from JS/SignalR variations)
+                else if (payload is IDictionary<string, object> dict)
+                {
+                    if (!dict.TryGetValue("Id", out var idObj) || idObj is null || !Guid.TryParse(idObj.ToString(), out id)) return;
+                    if (dict.TryGetValue("ImageUrl", out var imgObj)) imageUrl = imgObj?.ToString();
+                    if (dict.TryGetValue("Visible", out var visObj) && bool.TryParse(visObj?.ToString(), out var v)) visible = v;
+                }
+                else
+                {
+                    // Fallback: try serialize-deserialize to JSON as last resort
+                    var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
+                    if (!json.RootElement.TryGetProperty("Id", out var idProp)) return;
+                    id = idProp.GetGuid();
+                    if (json.RootElement.TryGetProperty("ImageUrl", out var imgProp)) imageUrl = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString();
+                    if (json.RootElement.TryGetProperty("Visible", out var visProp)) visible = visProp.GetBoolean();
+                }
+
+                var slot = allSlots.FirstOrDefault(s => s.Id == id);
+                if (slot != null)
+                {
+                    if (imageUrl != null || (imageUrl == null && visible == null))
+                    {
+                        // If ImageUrl is explicitly provided (including null), set it
+                        slot.ImageUrl = imageUrl;
+                    }
+                    if (visible.HasValue) slot.Visible = visible.Value;
+                    InvokeAsync(StateHasChanged);
+                }
+            }
+            catch
+            {
+                // Swallow malformed payloads; they may target other pages/profiles.
+            }
+        });
+        await _hub.StartAsync();
+        await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+
+        // Preload Pokémon list for selector
+        await EnsurePokemonListAsync();
+    }
+
+    private async Task UpdateSlotImage(Slot slot, string? imageUrl)
+    {
+        try
+        {
+            slot.ImageUrl = imageUrl;
+            // Persist and broadcast via server service (also emits SlotUpdated over SignalR)
+            await LayoutSvc.UpdateSlotAsync(PairId, slot);
+
+            _statusMessage = "Updated successfully";
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            _statusIsError = true;
+        }
+        StateHasChanged();
+    }
+
+    private async Task UpdateSlotVisibility(Slot slot, bool visible)
+    {
+        try
+        {
+            slot.Visible = visible;
+            // Persist and broadcast via server service (also emits SlotUpdated over SignalR)
+            await LayoutSvc.UpdateSlotAsync(PairId, slot);
+
+            _statusMessage = "Updated successfully";
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            _statusIsError = true;
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _hub?.DisposeAsync();
+    }
+
+    // ——— Pokemon Selector Helpers ———
+    private async Task EnsurePokemonListAsync()
+    {
+        if (_allPokemonCache != null && (DateTime.UtcNow - _pokemonCacheTime) < TimeSpan.FromHours(12))
+            return;
+
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            using var resp = await client.GetAsync("https://pokeapi.co/api/v2/pokemon?limit=2000");
+            resp.EnsureSuccessStatusCode();
+            using var stream = await resp.Content.ReadAsStreamAsync();
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+            var results = doc.RootElement.GetProperty("results");
+            var list = new List<PokemonListItem>(results.GetArrayLength());
+            foreach (var el in results.EnumerateArray())
+            {
+                var name = el.GetProperty("name").GetString() ?? string.Empty;
+                var url = el.GetProperty("url").GetString() ?? string.Empty;
+                var id = TryParseIdFromUrl(url);
+                if (id <= 0) continue;
+                list.Add(new PokemonListItem
+                {
+                    Id = id,
+                    Name = name,
+                    IconUrl = $"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
+                });
+            }
+            _allPokemonCache = list.OrderBy(p => p.Id).ToList();
+            _pokemonCacheTime = DateTime.UtcNow;
+        }
+        catch
+        {
+            // Swallow errors; UI will show empty matches
+            _allPokemonCache ??= new List<PokemonListItem>();
+        }
+    }
+
+    private static int TryParseIdFromUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return 0;
+        // URL format: https://pokeapi.co/api/v2/pokemon/{id}/
+        var parts = url.TrimEnd('/').Split('/');
+        if (parts.Length == 0) return 0;
+        if (int.TryParse(parts[^1], out var id)) return id;
+        return 0;
+    }
+
+    private IEnumerable<PokemonListItem> FilterPokemon(string? query)
+    {
+        var src = _allPokemonCache ?? Enumerable.Empty<PokemonListItem>();
+        if (string.IsNullOrWhiteSpace(query)) return src.Take(50);
+        query = query.Trim();
+        if (int.TryParse(query.TrimStart('#'), out var num))
+        {
+            return src.Where(p => p.Id == num);
+        }
+        var q = query.ToLowerInvariant();
+        return src.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void OnSearchChanged(Guid slotId, string? text)
+    {
+        _searchTexts[slotId] = text ?? string.Empty;
+        _dropdownOpen.Add(slotId);
+    }
+    private void SetDropdownOpen(Guid slotId, bool open)
+    {
+        if (open) _dropdownOpen.Add(slotId); else _dropdownOpen.Remove(slotId);
+    }
+    private bool IsDropdownOpen(Guid slotId) => _dropdownOpen.Contains(slotId);
+    private string GetSearchText(Guid slotId) => _searchTexts.TryGetValue(slotId, out var t) ? t : string.Empty;
+    private async Task OnSearchBlur(Guid slotId)
+    {
+        // Delay to allow click on item to register before closing
+        await Task.Delay(150);
+        SetDropdownOpen(slotId, false);
+        StateHasChanged();
+    }
+    private async Task SelectPokemon(Slot slot, PokemonListItem p)
+    {
+        try
+        {
+            // Fetch official artwork URL from PokeAPI to satisfy requirement
+            var client = HttpFactory.CreateClient();
+            var resp = await client.GetAsync($"https://pokeapi.co/api/v2/pokemon/{p.Id}");
+            string? artwork = null;
+            if (resp.IsSuccessStatusCode)
+            {
+                using var stream = await resp.Content.ReadAsStreamAsync();
+                using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+                if (doc.RootElement.TryGetProperty("sprites", out var sprites) &&
+                    sprites.TryGetProperty("other", out var other) &&
+                    other.TryGetProperty("official-artwork", out var oa) &&
+                    oa.TryGetProperty("front_default", out var front) &&
+                    front.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    artwork = front.GetString();
+                }
+            }
+            artwork ??= $"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{p.Id}.png";
+
+            await UpdateSlotImage(slot, artwork);
+            _searchTexts[slot.Id] = $"#{p.Id:000} {p.DisplayName}";
+        }
+        finally
+        {
+            SetDropdownOpen(slot.Id, false);
+        }
+    }
+    private Task ClearPokemon(Slot slot) => UpdateSlotImage(slot, null);
+
+    private sealed class PokemonListItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string IconUrl { get; set; } = string.Empty;
+        public string DisplayName => NormalizeName(Name);
+        private static string NormalizeName(string n)
+        {
+            if (string.IsNullOrWhiteSpace(n)) return n;
+            // Convert to Title Case and replace hyphens with spaces (e.g., "mr-mime" -> "Mr Mime")
+            var parts = n.Split('-', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var s = parts[i];
+                parts[i] = char.ToUpperInvariant(s[0]) + (s.Length > 1 ? s.Substring(1) : string.Empty);
+            }
+            return string.Join(' ', parts);
+        }
+    }
+}

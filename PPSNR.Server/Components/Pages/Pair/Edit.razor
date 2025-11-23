@@ -1,15 +1,23 @@
 ﻿@page "/{pairId:guid}/edit/{token:guid}"
+@page "/{pairId:guid}/partner-edit/{token:guid}"
+@layout EmptyLayout
+@using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
-@attribute [Authorize]
 @inject ApplicationDbContext Db
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider Auth
 @inject IJSRuntime JS
+@inject Services.ImagesCacheService ImagesCache
 
 <style>
     html, body, #app { background: transparent; margin: 0; padding: 0; }
-    #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-    .drag { position: absolute; touch-action: none; cursor: move; }
+    /*
+       Use width:100% instead of 100vw to avoid including the vertical scrollbar width,
+       which causes the right edge to be clipped in some browsers when overflow is hidden.
+    */
+    #canvas { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+    .drag { position: absolute; touch-action: none; cursor: move; outline: 2px dashed rgba(255,255,255,0.5); outline-offset: -2px; }
+    .drag.inactive { opacity: 0.35; filter: grayscale(100%); }
     .hud { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.5); color: white; padding: 6px 10px; border-radius: 6px; font-family: sans-serif; }
 </style>
 
@@ -24,14 +32,14 @@ else if (layouts is null)
 else
 {
     <div class="hud">
-        <b>@pair?.Name</b> — Drag images to reposition. Changes auto-save.
+        <b>@pair?.Name</b> — Drag images to reposition@(editProfile == SlotProfile.Partner ? " (Partner)" : string.Empty). Changes auto-save.
     </div>
     <div id="canvas" data-pair-id="@pairId">
         @foreach (var l in layouts)
         {
             @foreach (var s in slots.Where(s => s.LayoutId == l.Id))
             {
-                <img class="drag" data-slot-id="@s.Id" data-layout-id="@l.Id" src="@s.ImageUrl" style="left:@(s.X)px; top:@(s.Y)px; z-index:@s.ZIndex; display:@(s.Visible ? "block" : "none");" />
+                <img class="@GetClass(s)" src="@GetImageSrc(s)" style="@GetStyle(s)" @attributes="GetDataAttributes(s, l)" />
             }
         }
     </div>
@@ -46,44 +54,117 @@ else
     private List<Layout>? layouts;
     private List<Slot> slots = new();
     private HubConnection? hub;
+    private const string TransparentPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAoMBgVqvJi8AAAAASUVORK5CYII=";
+    private SlotProfile editProfile;
 
     protected override async Task OnInitializedAsync()
     {
-        // Validate edit token
+        // Validate token for both owner and partner edit flows
         var link = Db.PairLinks.FirstOrDefault(l => l.PairId == pairId);
-        authorized = link != null && link.EditToken == token && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow);
+        authorized = false;
+        if (link != null && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow))
+        {
+            // Owner edit flow
+            if (link.EditToken == token)
+            {
+                pair = Db.Pairs.FirstOrDefault(p => p.Id == pairId);
+                var state = await Auth.GetAuthenticationStateAsync();
+                var userId = state.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (pair != null && !string.IsNullOrEmpty(userId) && string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal))
+                {
+                    authorized = true;
+                    editProfile = SlotProfile.Owner;
+                }
+            }
+            // Partner edit flow
+            else if (link.PartnerEditToken == token)
+            {
+                pair = Db.Pairs.FirstOrDefault(p => p.Id == pairId);
+                if (pair != null)
+                {
+                    authorized = true;
+                    editProfile = SlotProfile.Partner;
+                }
+            }
+        }
         if (!authorized) return;
 
-        pair = Db.Pairs.FirstOrDefault(p => p.Id == pairId);
-        // Owner-only: ensure current authenticated user is the owner of the pair
-        var state = await Auth.GetAuthenticationStateAsync();
-        var userId = state.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (pair == null || string.IsNullOrEmpty(userId) || !string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal))
-        {
-            authorized = false;
-            return;
-        }
         layouts = Db.Layouts.Where(l => l.PairId == pairId).ToList();
         var layoutIds = layouts.Select(l => l.Id).ToList();
-        // Load only owner-profile slots for owner editor
-        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == SlotProfile.Owner)
+        // Load only relevant profile slots for the selected editor mode
+        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == editProfile)
                         .OrderBy(s => s.ZIndex)
                         .ToList();
+
+        // Normalize any legacy or external ImageUrl values to cached /resources paths so images render
+        await NormalizeSlotImagesAsync(slots);
 
         // SignalR to see live updates from other editors
         hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
         hub.On<object>("SlotUpdated", payload =>
         {
-            var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
-            var id = json.RootElement.GetProperty("Id").GetGuid();
-            var slot = slots.FirstOrDefault(s => s.Id == id);
-            if (slot != null)
+            try
             {
-                slot.X = (float)json.RootElement.GetProperty("X").GetDouble();
-                slot.Y = (float)json.RootElement.GetProperty("Y").GetDouble();
-                slot.ZIndex = json.RootElement.GetProperty("ZIndex").GetInt32();
-                slot.Visible = json.RootElement.GetProperty("Visible").GetBoolean();
-                InvokeAsync(StateHasChanged);
+                Guid id;
+                float? x = null;
+                float? y = null;
+                int? z = null;
+                bool? vis = null;
+                string? img = null;
+                bool imgPresent = false;
+
+                // Case 1: already a JsonElement
+                if (payload is System.Text.Json.JsonElement el)
+                {
+                    if (!TryGetPropertyCI(el, "Id", out var idProp)) return; // ignore unknown payloads
+                    id = idProp.GetGuid();
+                    if (TryGetPropertyCI(el, "X", out var xProp)) x = (float)xProp.GetDouble();
+                    if (TryGetPropertyCI(el, "Y", out var yProp)) y = (float)yProp.GetDouble();
+                    if (TryGetPropertyCI(el, "ZIndex", out var zProp)) z = zProp.GetInt32();
+                    if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
+                    if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                }
+                // Case 2: dictionary (sometimes SignalR transports as dict)
+                else if (payload is IDictionary<string, object> dict)
+                {
+                    if (!TryGetValueCI(dict, "Id", out var idObj) || idObj is null || !Guid.TryParse(idObj.ToString(), out id)) return;
+                    if (TryGetValueCI(dict, "X", out var xObj) && float.TryParse(xObj?.ToString(), out var xv)) x = xv;
+                    if (TryGetValueCI(dict, "Y", out var yObj) && float.TryParse(yObj?.ToString(), out var yv)) y = yv;
+                    if (TryGetValueCI(dict, "ZIndex", out var zObj) && int.TryParse(zObj?.ToString(), out var zv)) z = zv;
+                    if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
+                    if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
+                }
+                else
+                {
+                    // Fallback: serialize and parse
+                    var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
+                    if (!TryGetPropertyCI(json.RootElement, "Id", out var idProp)) return;
+                    id = idProp.GetGuid();
+                    if (TryGetPropertyCI(json.RootElement, "X", out var xProp)) x = (float)xProp.GetDouble();
+                    if (TryGetPropertyCI(json.RootElement, "Y", out var yProp)) y = (float)yProp.GetDouble();
+                    if (TryGetPropertyCI(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
+                    if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
+                    if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                }
+
+                var slot = slots.FirstOrDefault(s => s.Id == id);
+                if (slot != null)
+                {
+                    if (x.HasValue) slot.X = x.Value;
+                    if (y.HasValue) slot.Y = y.Value;
+                    if (z.HasValue) slot.ZIndex = z.Value;
+                    if (vis.HasValue) slot.Visible = vis.Value;
+                    if (imgPresent)
+                    {
+                        // Update ImageUrl when it's explicitly present (including null)
+                        slot.ImageUrl = img;
+                    }
+                    InvokeAsync(StateHasChanged);
+                }
+            }
+            catch
+            {
+                // Ignore malformed events
             }
         });
         await hub.StartAsync();
@@ -94,7 +175,75 @@ else
     {
         if (firstRender && authorized)
         {
-            await JS.InvokeVoidAsync("PPSNR_Drag.init", "/api", pairId.ToString());
+            var apiBase = editProfile == SlotProfile.Partner ? $"/api/partner/{token}" : "/api";
+            await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
         }
     }
+    private string GetStyle(Slot s)
+    {
+        var style = $"left:{s.X}px; top:{s.Y}px; z-index:{s.ZIndex};";
+        if (string.IsNullOrEmpty(s.ImageUrl))
+        {
+            var w = s.SlotType == SlotType.Pokemon ? 128 : 48;
+            style += $" width:{w}px; height:{w}px;";
+        }
+        return style;
+    }
+    private string GetClass(Slot s) => s.Visible ? "drag" : "drag inactive";
+    private string GetImageSrc(Slot s) => string.IsNullOrWhiteSpace(s.ImageUrl) ? TransparentPng : s.ImageUrl!;
+
+    private async Task NormalizeSlotImagesAsync(IEnumerable<Slot> list)
+    {
+        var changed = false;
+        foreach (var s in list)
+        {
+            if (!string.IsNullOrWhiteSpace(s.ImageUrl))
+            {
+                var url = s.ImageUrl!;
+                if (!url.StartsWith("/"))
+                {
+                    try
+                    {
+                        var normalized = await ImagesCache.GetCachedImageUrlAsync(url);
+                        if (!string.Equals(normalized, url, StringComparison.Ordinal))
+                        {
+                            s.ImageUrl = normalized;
+                            changed = true;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore normalization failures; keep original so user can fix in selection UI
+                    }
+                }
+            }
+        }
+        if (changed)
+        {
+            await Db.SaveChangesAsync();
+        }
+    }
+}
+
+@code {
+    private IReadOnlyDictionary<string, object> GetDataAttributes(Slot s, Layout l)
+        => new Dictionary<string, object>
+        {
+            ["data-slot-id"] = s.Id.ToString(),
+            ["data-layout-id"] = l.Id.ToString()
+        };
+    private static bool TryGetPropertyCI(System.Text.Json.JsonElement el, string name, out System.Text.Json.JsonElement prop)
+    {
+        if (el.TryGetProperty(name, out prop)) return true;
+        var camel = LowerFirst(name);
+        return el.TryGetProperty(camel, out prop);
+    }
+    private static bool TryGetValueCI(IDictionary<string, object> dict, string name, out object? value)
+    {
+        if (dict.TryGetValue(name, out value)) return true;
+        var camel = LowerFirst(name);
+        return dict.TryGetValue(camel, out value);
+    }
+    private static string LowerFirst(string s)
+        => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s.Substring(1);
 }

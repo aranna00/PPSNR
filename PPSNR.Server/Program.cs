@@ -139,8 +139,15 @@ else
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
-app.UseHttpsRedirection();
+// Allow disabling HTTPS redirection in tests (TestServer doesn't support HTTPS)
+if (!app.Configuration.GetValue<bool>("DisableHttpsRedirection"))
+{
+    app.UseHttpsRedirection();
+}
 
+
+// Serve runtime-generated files under wwwroot (e.g., /resources/* cached images)
+app.UseStaticFiles();
 
 app.UseRouting();
 
@@ -161,3 +168,5 @@ app.MapRazorComponents<App>()
 app.MapAdditionalIdentityEndpoints();
 
 app.Run();
+
+public partial class Program { }
