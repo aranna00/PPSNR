@@ -1,10 +1,13 @@
-﻿namespace PPSNR.Server.Services;
+﻿using System.Collections.Concurrent;
+
+namespace PPSNR.Server.Services;
 
 public class ImagesCacheService
 {
     private readonly IWebHostEnvironment _env;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ImagesCacheService> _logger;
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
 
     private const string ResourcesFolder = "wwwroot/resources";
 
@@ -39,20 +42,63 @@ public class ImagesCacheService
             return relPath;
         }
 
+        var fileLock = FileLocks.GetOrAdd(absPath, _ => new SemaphoreSlim(1, 1));
+        await fileLock.WaitAsync(ct);
         try
         {
+            // Re-check after acquiring the lock to avoid duplicate downloads
+            if (File.Exists(absPath))
+            {
+                return relPath;
+            }
+
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(20);
             using var resp = await client.GetAsync(url, ct);
             resp.EnsureSuccessStatusCode();
-            await using var fs = File.Create(absPath);
-            await resp.Content.CopyToAsync(fs, ct);
+
+            var tempPath = absPath + ".downloading_" + Guid.NewGuid().ToString("N");
+            try
+            {
+                await using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+                {
+                    await resp.Content.CopyToAsync(fs, ct);
+                }
+
+                // Move into final location atomically. If another process created it in the meantime, ignore.
+                try
+                {
+                    // Prefer overwrite move to avoid races
+                    File.Move(tempPath, absPath, overwrite: true);
+                }
+                catch (IOException)
+                {
+                    // Destination might have been created by another concurrent writer.
+                    if (File.Exists(tempPath))
+                    {
+                        try { File.Delete(tempPath); } catch { /* ignore */ }
+                    }
+                }
+            }
+            finally
+            {
+                // Best-effort cleanup if temp remains for any reason
+                if (File.Exists(absPath) == false)
+                {
+                    // nothing; the move will have created it if successful
+                }
+            }
+
             return relPath;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to cache image from {Url}", url);
             throw;
+        }
+        finally
+        {
+            fileLock.Release();
         }
     }
 

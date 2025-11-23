@@ -26,6 +26,74 @@ body {
   color: $color_6;
 }
 
+/* Layout editor styles (moved from Edit.razor) */
+html, body, #app {
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+#canvas {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.hud {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.5);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: sans-serif;
+  z-index: 9999;
+}
+
+.drag {
+  position: absolute;
+  touch-action: none;
+  cursor: move;
+  outline: 2px dashed rgba(255,255,255,0.35);
+  outline-offset: -2px;
+
+  // image fills the box but preserves aspect ratio
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none; // let the container receive pointer events
+    display: block;
+  }
+
+  // resize handles
+  .resizer {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: rgba(255,255,255,0.9);
+    border: 1px solid rgba(0,0,0,0.6);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+    border-radius: 2px;
+  }
+  .resizer.n { cursor: ns-resize; top: -5px; left: 50%; transform: translateX(-50%); }
+  .resizer.s { cursor: ns-resize; bottom: -5px; left: 50%; transform: translateX(-50%); }
+  .resizer.e { cursor: ew-resize; right: -5px; top: 50%; transform: translateY(-50%); }
+  .resizer.w { cursor: ew-resize; left: -5px; top: 50%; transform: translateY(-50%); }
+  .resizer.nw { cursor: nwse-resize; top: -5px; left: -5px; }
+  .resizer.ne { cursor: nesw-resize; top: -5px; right: -5px; }
+  .resizer.sw { cursor: nesw-resize; bottom: -5px; left: -5px; }
+  .resizer.se { cursor: nwse-resize; bottom: -5px; right: -5px; }
+}
+
+.drag.inactive {
+  opacity: 0.35;
+  filter: grayscale(100%);
+}
+
 a {
   color: $color_1;
 }

@@ -9,17 +9,7 @@
 @inject IJSRuntime JS
 @inject Services.ImagesCacheService ImagesCache
 
-<style>
-    html, body, #app { background: transparent; margin: 0; padding: 0; }
-    /*
-       Use width:100% instead of 100vw to avoid including the vertical scrollbar width,
-       which causes the right edge to be clipped in some browsers when overflow is hidden.
-    */
-    #canvas { position: relative; width: 100%; height: 100vh; overflow: hidden; }
-    .drag { position: absolute; touch-action: none; cursor: move; outline: 2px dashed rgba(255,255,255,0.5); outline-offset: -2px; }
-    .drag.inactive { opacity: 0.35; filter: grayscale(100%); }
-    .hud { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.5); color: white; padding: 6px 10px; border-radius: 6px; font-family: sans-serif; }
-</style>
+@* Styles moved to app.scss *@
 
 @if (!authorized)
 {
@@ -39,7 +29,17 @@ else
         {
             @foreach (var s in slots.Where(s => s.LayoutId == l.Id))
             {
-                <img class="@GetClass(s)" src="@GetImageSrc(s)" style="@GetStyle(s)" @attributes="GetDataAttributes(s, l)" />
+                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id" data-layout-id="@l.Id" data-z-index="@s.ZIndex" data-visible="@s.Visible" data-image-url="@s.ImageUrl" data-slot-type="@s.SlotType" data-index="@s.Index">
+                    <img src="@GetImageSrc(s)" draggable="false" alt="slot" />
+                    <span class="resizer nw" data-dir="nw"></span>
+                    <span class="resizer n" data-dir="n"></span>
+                    <span class="resizer ne" data-dir="ne"></span>
+                    <span class="resizer e" data-dir="e"></span>
+                    <span class="resizer se" data-dir="se"></span>
+                    <span class="resizer s" data-dir="s"></span>
+                    <span class="resizer sw" data-dir="sw"></span>
+                    <span class="resizer w" data-dir="w"></span>
+                </div>
             }
         }
     </div>
@@ -112,6 +112,8 @@ else
                 bool? vis = null;
                 string? img = null;
                 bool imgPresent = false;
+                string? add = null;
+                bool addPresent = false;
 
                 // Case 1: already a JsonElement
                 if (payload is System.Text.Json.JsonElement el)
@@ -123,6 +125,7 @@ else
                     if (TryGetPropertyCI(el, "ZIndex", out var zProp)) z = zProp.GetInt32();
                     if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
                     if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                    if (TryGetPropertyCI(el, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
                 }
                 // Case 2: dictionary (sometimes SignalR transports as dict)
                 else if (payload is IDictionary<string, object> dict)
@@ -133,6 +136,7 @@ else
                     if (TryGetValueCI(dict, "ZIndex", out var zObj) && int.TryParse(zObj?.ToString(), out var zv)) z = zv;
                     if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
                     if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
+                    if (TryGetValueCI(dict, "AdditionalProperties", out var aObj)) { addPresent = true; add = aObj == null ? null : aObj.ToString(); }
                 }
                 else
                 {
@@ -145,6 +149,7 @@ else
                     if (TryGetPropertyCI(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
                     if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
                     if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                    if (TryGetPropertyCI(json.RootElement, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
                 }
 
                 var slot = slots.FirstOrDefault(s => s.Id == id);
@@ -158,6 +163,10 @@ else
                     {
                         // Update ImageUrl when it's explicitly present (including null)
                         slot.ImageUrl = img;
+                    }
+                    if (addPresent)
+                    {
+                        slot.AdditionalProperties = add;
                     }
                     InvokeAsync(StateHasChanged);
                 }
@@ -182,15 +191,29 @@ else
     private string GetStyle(Slot s)
     {
         var style = $"left:{s.X}px; top:{s.Y}px; z-index:{s.ZIndex};";
-        if (string.IsNullOrEmpty(s.ImageUrl))
+        var (w, h) = GetSizeFromAdditional(s);
+        if (!string.IsNullOrEmpty(s.ImageUrl))
         {
-            var w = s.SlotType == SlotType.Pokemon ? 128 : 48;
-            style += $" width:{w}px; height:{w}px;";
+            // If no explicit size set, provide a sensible default to avoid huge official artwork
+            if (w == null && h == null)
+            {
+                w = s.SlotType == SlotType.Pokemon ? 256 : 96;
+            }
         }
+        else
+        {
+            // For placeholders ensure a minimum box to drag
+            w ??= s.SlotType == SlotType.Pokemon ? 128 : 48;
+            h ??= w;
+        }
+
+        if (w != null) style += $" width:{w}px;";
+        if (h != null) style += $" height:{h}px;";
         return style;
     }
     private string GetClass(Slot s) => s.Visible ? "drag" : "drag inactive";
     private string GetImageSrc(Slot s) => string.IsNullOrWhiteSpace(s.ImageUrl) ? TransparentPng : s.ImageUrl!;
+    // additional properties are not emitted as a data attribute to avoid large attribute values; JS reads sizes from inline style
 
     private async Task NormalizeSlotImagesAsync(IEnumerable<Slot> list)
     {
@@ -226,12 +249,31 @@ else
 }
 
 @code {
-    private IReadOnlyDictionary<string, object> GetDataAttributes(Slot s, Layout l)
-        => new Dictionary<string, object>
+    private (int? w, int? h) GetSizeFromAdditional(Slot s)
+    {
+        try
         {
-            ["data-slot-id"] = s.Id.ToString(),
-            ["data-layout-id"] = l.Id.ToString()
-        };
+            if (string.IsNullOrWhiteSpace(s.AdditionalProperties)) return (null, null);
+            using var doc = System.Text.Json.JsonDocument.Parse(s.AdditionalProperties);
+            var root = doc.RootElement;
+            int? w = null, h = null;
+            if (TryGetPropertyCI(root, "w", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                var v = (int)wProp.GetDouble();
+                if (v > 0) w = v;
+            }
+            if (TryGetPropertyCI(root, "h", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                var v = (int)hProp.GetDouble();
+                if (v > 0) h = v;
+            }
+            return (w, h);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
     private static bool TryGetPropertyCI(System.Text.Json.JsonElement el, string name, out System.Text.Json.JsonElement prop)
     {
         if (el.TryGetProperty(name, out prop)) return true;
