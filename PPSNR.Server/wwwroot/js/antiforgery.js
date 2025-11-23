@@ -27,6 +27,14 @@
       headers,
       body: body
     });
+    // If unauthorized, redirect to login preserving the current location as returnUrl
+    if (r.status === 401) {
+      try {
+        const returnUrl = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        window.location.assign(`/auth/login?returnUrl=${returnUrl}`);
+      } catch (_) { /* no-op */ }
+      throw new Error('Unauthorized');
+    }
     const text = await r.text();
     if (!r.ok) {
       throw new Error(text || r.statusText);

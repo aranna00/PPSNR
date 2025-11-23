@@ -52,7 +52,9 @@ builder.Services
        {
            // Use Identity application cookie as default scheme, Challenge goes to Twitch
            options.DefaultScheme = IdentityConstants.ApplicationScheme;
-           options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+           // Sign successful external (Twitch) logins directly into the application cookie
+           // so the auth state persists across requests and we don't keep challenging.
+           options.DefaultSignInScheme = IdentityConstants.ApplicationScheme;
            options.DefaultChallengeScheme = "Twitch";
        })
        .AddIdentityCookies();
@@ -87,8 +89,8 @@ builder.Services
         };
 
         // Correlation cookie must allow cross-site in external login roundtrip
-        options.CorrelationCookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.None;
-        options.CorrelationCookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
+        options.CorrelationCookie.SameSite = SameSiteMode.None;
+        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
     });
 
 

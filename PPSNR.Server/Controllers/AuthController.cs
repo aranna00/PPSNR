@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace PPSNR.Server2.Controllers;
@@ -21,7 +21,8 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
-        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        // Sign out of the application cookie (Identity application scheme)
+        await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         return Ok();
     }
 
