@@ -9,25 +9,25 @@
 <h1>Streamer Pairs</h1>
 
 <div style="margin-bottom:8px;">
-    <button @onclick="CreateSamplePair" disabled="@busy">@(busy ? "Creating..." : "Create Sample Pair")</button>
-    @if (!string.IsNullOrWhiteSpace(status))
+    <button @onclick="CreateSamplePair" disabled="@_busy">@(_busy ? "Creating..." : "Create Sample Pair")</button>
+    @if (!string.IsNullOrWhiteSpace(_status))
     {
-        <span style="margin-left:10px; color:@(statusIsError ? "#c00" : "#090")">@status</span>
+        <span style="margin-left:10px; color:@(_statusIsError ? "#c00" : "#090")">@_status</span>
     }
-    <button style="margin-left:10px;" @onclick=Reload disabled="@busy">Reload</button>
-    <span style="margin-left:10px; color:#666">Count: @pairs.Count</span>
-    @if (lastCreatedId != Guid.Empty)
+    <button style="margin-left:10px;" @onclick=Reload disabled="@_busy">Reload</button>
+    <span style="margin-left:10px; color:#666">Count: @_pairs.Count</span>
+    @if (_lastCreatedId != Guid.Empty)
     {
-        <span style="margin-left:10px; color:#666">Last created: @lastCreatedId</span>
+        <span style="margin-left:10px; color:#666">Last created: @_lastCreatedId</span>
     }
 </div>
 
 <ul>
-    @foreach (var p in pairs)
+    @foreach (var p in _pairs)
     {
         <li>
             <b>@p.Name</b>
-            @if (links.TryGetValue(p.Id, out var link))
+            @if (_links.TryGetValue(p.Id, out var link))
             {
                 <div>
                     View: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
@@ -45,12 +45,12 @@
 </ul>
 
 @code {
-    private List<StreamerPair> pairs = new();
-    private Dictionary<Guid, PairLink> links = new();
-    private bool busy;
-    private string? status;
-    private bool statusIsError;
-    private Guid lastCreatedId;
+    private List<StreamerPair> _pairs = new();
+    private Dictionary<Guid, PairLink> _links = new();
+    private bool _busy;
+    private string? _status;
+    private bool _statusIsError;
+    private Guid _lastCreatedId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -61,20 +61,20 @@
     {
         try
         {
-            busy = true;
+            _busy = true;
             await using var db = await DbFactory.CreateDbContextAsync();
-            pairs = await db.Pairs.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
-            links.Clear();
-            var pairIds = pairs.Select(p => p.Id).ToList();
+            _pairs = await db.Pairs.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
+            _links.Clear();
+            var pairIds = _pairs.Select(p => p.Id).ToList();
             var existingLinks = await db.PairLinks.AsNoTracking().Where(l => pairIds.Contains(l.PairId)).ToListAsync();
             foreach (var l in existingLinks)
             {
-                links[l.PairId] = l;
+                _links[l.PairId] = l;
             }
         }
         finally
         {
-            busy = false;
+            _busy = false;
         }
     }
 
@@ -86,33 +86,33 @@
         var dto = System.Text.Json.JsonDocument.Parse(dtoText);
         var viewToken = dto.RootElement.GetProperty("viewToken").GetGuid();
         var editToken = dto.RootElement.GetProperty("editToken").GetGuid();
-        links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken };
+        _links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken };
         StateHasChanged();
     }
 
     private async Task CreateSamplePair()
     {
-        status = null;
-        statusIsError = false;
-        busy = true;
+        _status = null;
+        _statusIsError = false;
+        _busy = true;
         StateHasChanged();
         try
         {
             // Authenticated creation via API so that antiforgery and authorization are enforced
             var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", "api/admin/pairs");
             var json = System.Text.Json.JsonDocument.Parse(dtoText);
-            lastCreatedId = json.RootElement.GetProperty("id").GetGuid();
-            status = $"Created pair '{lastCreatedId}'";
+            _lastCreatedId = json.RootElement.GetProperty("id").GetGuid();
+            _status = $"Created pair '{_lastCreatedId}'";
             await Reload();
         }
         catch (Exception ex)
         {
-            statusIsError = true;
-            status = $"Error: {ex.GetType().Name} - {ex.Message}";
+            _statusIsError = true;
+            _status = $"Error: {ex.GetType().Name} - {ex.Message}";
         }
         finally
         {
-            busy = false;
+            _busy = false;
             StateHasChanged();
         }
     }
