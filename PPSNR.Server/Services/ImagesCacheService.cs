@@ -9,7 +9,8 @@ public class ImagesCacheService
     private readonly ILogger<ImagesCacheService> _logger;
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
 
-    private const string ResourcesFolder = "wwwroot/resources";
+    // Cache folder moved under wwwroot/resources/img/cache
+    private const string ResourcesFolder = "wwwroot/resources/img/cache";
 
     public ImagesCacheService(IWebHostEnvironment env, IHttpClientFactory httpClientFactory, ILogger<ImagesCacheService> logger)
     {
@@ -20,6 +21,7 @@ public class ImagesCacheService
 
     public async Task<string> GetCachedImageUrlAsync(string externalUrlOrId, CancellationToken ct = default)
     {
+        // Ensure cache directory exists
         Directory.CreateDirectory(Path.Combine(_env.ContentRootPath, ResourcesFolder));
 
         // If it's a Pokemon name/id, fetch from PokéAPI
@@ -35,7 +37,7 @@ public class ImagesCacheService
     {
         var fileName = MakeSafeFileName(url);
         var absPath = Path.Combine(_env.ContentRootPath, ResourcesFolder, fileName);
-        var relPath = $"/resources/{fileName}";
+        var relPath = $"/resources/img/cache/{fileName}";
 
         if (File.Exists(absPath))
         {
