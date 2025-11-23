@@ -1,2 +1,5 @@
 ﻿# Ignore runtime image cache (generated at runtime)
 wwwroot/resources/img/cache/
+Data/app.db
+Data/app.db-shm
+Data/app.db-wal
