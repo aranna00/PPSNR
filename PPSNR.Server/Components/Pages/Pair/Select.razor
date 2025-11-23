@@ -243,9 +243,21 @@
     {
         try
         {
+            // Update current profile slot
             slot.ImageUrl = imageUrl;
-            // Persist and broadcast via server service (also emits SlotUpdated over SignalR)
             await LayoutSvc.UpdateSlotAsync(PairId, slot);
+
+            // Propagate shared field to counterpart profile and broadcast as well
+            var counterpartProfile = slot.Profile == SlotProfile.Owner ? SlotProfile.Partner : SlotProfile.Owner;
+            var counterpart = Db.Slots.FirstOrDefault(s => s.LayoutId == slot.LayoutId
+                                                           && s.SlotType == slot.SlotType
+                                                           && s.Index == slot.Index
+                                                           && s.Profile == counterpartProfile);
+            if (counterpart != null)
+            {
+                counterpart.ImageUrl = imageUrl;
+                await LayoutSvc.UpdateSlotAsync(PairId, counterpart);
+            }
 
             _statusMessage = "Updated successfully";
             _statusIsError = false;
@@ -262,9 +274,21 @@
     {
         try
         {
+            // Update current profile slot
             slot.Visible = visible;
-            // Persist and broadcast via server service (also emits SlotUpdated over SignalR)
             await LayoutSvc.UpdateSlotAsync(PairId, slot);
+
+            // Propagate shared field to counterpart profile and broadcast as well
+            var counterpartProfile = slot.Profile == SlotProfile.Owner ? SlotProfile.Partner : SlotProfile.Owner;
+            var counterpart = Db.Slots.FirstOrDefault(s => s.LayoutId == slot.LayoutId
+                                                           && s.SlotType == slot.SlotType
+                                                           && s.Index == slot.Index
+                                                           && s.Profile == counterpartProfile);
+            if (counterpart != null)
+            {
+                counterpart.Visible = visible;
+                await LayoutSvc.UpdateSlotAsync(PairId, counterpart);
+            }
 
             _statusMessage = "Updated successfully";
             _statusIsError = false;

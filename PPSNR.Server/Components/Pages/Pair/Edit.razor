@@ -1,6 +1,7 @@
 ﻿@page "/{pairId:guid}/edit/{token:guid}"
 @page "/{pairId:guid}/partner-edit/{token:guid}"
 @layout EmptyLayout
+@rendermode InteractiveServer
 @using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
 @inject ApplicationDbContext Db
@@ -21,6 +22,24 @@ else if (layouts is null)
 }
 else
 {
+    <script>
+        (function(){
+            try{
+                if (!window.PPSNR_Drag){
+                    var s=document.createElement('script');
+                    s.src='js/editor-drag.js';
+                    s.defer=true;
+                    document.head.appendChild(s);
+                }
+                if (!window.ppsnr){
+                    var s2=document.createElement('script');
+                    s2.src='js/antiforgery.js';
+                    s2.defer=true;
+                    document.head.appendChild(s2);
+                }
+            }catch(e){ console.warn('[edit] script inject failed', e); }
+        })();
+    </script>
     <div class="hud">
         <b>@pair?.Name</b> — Drag images to reposition@(editProfile == SlotProfile.Partner ? " (Partner)" : string.Empty). Changes auto-save.
     </div>
@@ -29,7 +48,7 @@ else
         {
             @foreach (var s in slots.Where(s => s.LayoutId == l.Id))
             {
-                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id" data-layout-id="@l.Id" data-z-index="@s.ZIndex" data-visible="@s.Visible" data-image-url="@s.ImageUrl" data-slot-type="@s.SlotType" data-index="@s.Index">
+                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id" data-layout-id="@l.Id" data-z-index="@s.ZIndex" data-visible="@s.Visible" data-image-url="@s.ImageUrl" data-slot-type="@s.SlotType.ToString()" data-index="@s.Index">
                     <img src="@GetImageSrc(s)" draggable="false" alt="slot" />
                     <span class="resizer nw" data-dir="nw"></span>
                     <span class="resizer n" data-dir="n"></span>

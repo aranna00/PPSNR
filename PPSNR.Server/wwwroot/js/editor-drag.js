@@ -6,18 +6,44 @@
       try {
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
-        const pair = pairId || canvas.getAttribute('data-pair-id');
+        if (canvas.__pps_init) return; // prevent double init
+
+        // Derive pairId and apiBase if not provided (handles auto-init case)
+        const pathSegs = (window.location.pathname || '')
+          .split('/')
+          .filter(Boolean);
+        // Route patterns:
+        // /{pairId}/edit/{token}
+        // /{pairId}/partner-edit/{token}
+        const urlPairId = pathSegs.length >= 3 ? pathSegs[0] : null;
+        const urlMode = pathSegs.length >= 3 ? pathSegs[1] : null; // 'edit' or 'partner-edit'
+        const urlToken = pathSegs.length >= 3 ? pathSegs[2] : null;
+
+        const pair = pairId || canvas.getAttribute('data-pair-id') || urlPairId || undefined;
+
+        let base = apiBase;
+        if (!base) {
+          if (urlMode === 'partner-edit' && urlToken) {
+            base = `/api/partner/${urlToken}`;
+          } else {
+            base = '/api';
+          }
+        }
+
+        // mark initialized only after we have derived the values
+        canvas.__pps_init = true;
+
         const elems = Array.from(canvas.querySelectorAll('.drag'));
-        elems.forEach(el => attachDragAndResize(el, apiBase, pair));
+        elems.forEach(el => attachDragAndResize(el, base, pair));
         // Observe for any dynamic changes (if future updates re-render)
         const mo = new MutationObserver(muts => {
           for (const m of muts) {
             if (m.type === 'childList') {
               m.addedNodes.forEach(n => {
                 if (n.nodeType === 1 && n.classList && n.classList.contains('drag')) {
-                  attachDragAndResize(n, apiBase, pair);
+                  attachDragAndResize(n, base, pair);
                 } else if (n.nodeType === 1) {
-                  n.querySelectorAll && n.querySelectorAll('.drag').forEach(d => attachDragAndResize(d, apiBase, pair));
+                  n.querySelectorAll && n.querySelectorAll('.drag').forEach(d => attachDragAndResize(d, base, pair));
                 }
               });
             }
@@ -59,7 +85,10 @@
   function attachDragAndResize(el, apiBase, pairId){
     if (el.__pps_attached) return;
     el.__pps_attached = true;
+    // Ensure the element itself doesn't trigger native panning/zooming
     el.style.touchAction = 'none';
+    // Prevent accidental text/image selection while dragging
+    el.style.userSelect = 'none';
 
     const canvas = el.parentElement; // #canvas
     let pointerId = null;
@@ -68,6 +97,9 @@
     let startBox = null;
 
     function onPointerDown(ev){
+      // Only respond to primary button / touch
+      if (typeof ev.button === 'number' && ev.button !== 0) return;
+      if (ev.isPrimary === false) return;
       if (pointerId !== null) return;
       const target = ev.target;
       const isResizer = target && target.classList && target.classList.contains('resizer');
@@ -76,12 +108,20 @@
       start = { x: ev.clientX, y: ev.clientY };
       startBox = getBox(el);
       bringToFront(el);
-      el.setPointerCapture && el.setPointerCapture(ev.pointerId);
+      try { el.setPointerCapture && el.setPointerCapture(ev.pointerId); } catch {}
+      // Prevent native drag image and text selection
       ev.preventDefault();
+      ev.stopPropagation();
+      // Fallback listeners on window in case pointer capture is not honored on this platform
+      window.addEventListener('pointermove', onPointerMove, { passive: false });
+      window.addEventListener('pointerup', onPointerUp, { passive: false, once: true });
+      window.addEventListener('pointercancel', onPointerCancel, { passive: false, once: true });
     }
 
     function onPointerMove(ev){
       if (pointerId === null) return;
+      // Only track move events for the active pointer
+      if (ev.pointerId && ev.pointerId !== pointerId) return;
       const dx = ev.clientX - start.x;
       const dy = ev.clientY - start.y;
       const parentRect = canvas.getBoundingClientRect();
@@ -128,6 +168,7 @@
         el.style.height = `${height}px`;
       }
       ev.preventDefault();
+      ev.stopPropagation();
     }
 
     async function onPointerUp(ev){
@@ -144,11 +185,31 @@
       mode = null;
       start = null;
       startBox = null;
+      ev.stopPropagation();
+      // Remove fallback listeners if any
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
     }
 
-    el.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
+    function onPointerCancel(ev){
+      // Treat as pointer up without saving (no change guaranteed)
+      try { el.releasePointerCapture && el.releasePointerCapture(ev.pointerId); } catch {}
+      pointerId = null;
+      mode = null;
+      start = null;
+      startBox = null;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      ev.stopPropagation();
+    }
+
+    el.addEventListener('pointerdown', onPointerDown, { passive: false });
+    // Listen on the element itself since it holds the pointer capture
+    el.addEventListener('pointermove', onPointerMove, { passive: false });
+    el.addEventListener('pointerup', onPointerUp, { passive: false });
+    el.addEventListener('lostpointercapture', onPointerCancel);
   }
 
   async function save(el, apiBase, pairId){
@@ -157,7 +218,23 @@
     const z = parseInt(el.getAttribute('data-z-index') || el.style.zIndex || '0', 10) || 0;
     const vis = (el.getAttribute('data-visible') || 'true') === 'true';
     const img = el.getAttribute('data-image-url');
-    const slotType = el.getAttribute('data-slot-type');
+    // Ensure SlotType is posted as a number to satisfy System.Text.Json EnumConverter (no JsonStringEnumConverter configured)
+    const slotTypeAttr = el.getAttribute('data-slot-type');
+    let slotType;
+    if (slotTypeAttr == null) {
+      slotType = 0; // default to 0 (Pokemon) if missing
+    } else {
+      const n = Number(slotTypeAttr);
+      if (!Number.isNaN(n)) {
+        slotType = n;
+      } else {
+        const name = String(slotTypeAttr).toLowerCase();
+        // Known mappings
+        if (name === 'pokemon') slotType = 0;
+        else if (name === 'badge') slotType = 1;
+        else slotType = 0; // sensible default
+      }
+    }
     const index = parseInt(el.getAttribute('data-index') || '0', 10) || 0;
     const x = Math.round(parseFloat(el.style.left || '0') || 0);
     const y = Math.round(parseFloat(el.style.top || '0') || 0);
@@ -191,7 +268,21 @@
 
   // auto-ready logs
   const ready = () => {
-    console.debug('[editor-drag] loaded');
+    console.log('[editor-drag] loaded');
+    // Global safeguard against native image drag within the editor canvas
+    const canvas = document.getElementById('canvas');
+    if (canvas) {
+      canvas.addEventListener('dragstart', e => e.preventDefault(), { passive: false });
+      // Auto-initialize as a fallback in case Blazor page didn't invoke init
+      try {
+        if (!canvas.__pps_init) {
+          // slight delay to allow Blazor to render children
+          setTimeout(() => {
+            try { window.PPSNR_Drag && window.PPSNR_Drag.init(); } catch (e) { console.warn('[editor-drag] auto-init failed', e); }
+          }, 0);
+        }
+      } catch {}
+    }
   };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', ready);
