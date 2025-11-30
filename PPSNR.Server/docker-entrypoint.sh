@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# NOTE: This entrypoint prefers environment variables (e.g. values supplied via
+# `env_file` or host environment). For backwards-compatibility it will also
+# load Docker secrets mounted under /run/secrets into environment variables if
+# present. You don't need Docker Swarm secrets for local development.
+
 # Load Docker secrets (files in /run/secrets) into environment variables if present.
 # This allows using Docker secrets or swarm secrets mounted into the container.
 load_secret_if_exists() {
@@ -26,4 +31,4 @@ fi
 # Default in production is to keep HTTPS redirection enabled, so nothing changed here.
 
 # Execute the container CMD (dotnet app)
-exec "${@}" 
+exec "${@}"

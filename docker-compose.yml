@@ -9,18 +9,17 @@ services:
       args:
         APP_UID: "1000"
         BUILD_CONFIGURATION: "Release"
-    # Load variables from a local .env file as fallback for secrets
+    # Load variables from a local .env file as the primary source for secrets/credentials
     env_file:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       - ASPNETCORE_Kestrel__Certificates__Default__Password=${Kestrel__Password:-}
-      # Allow .env to provide TWITCH values; if Docker secrets are present they will be
-      # mounted at /run/secrets and the container entrypoint will prefer them.
+      # Provide TWITCH values via .env (or the host env); no Docker secrets required
       - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
       - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}
-      # Connection string: prefer env var (from .env) or Docker secret (mounted and exported by entrypoint)
+      # Connection string: prefer env var (from .env)
       - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection:-}
       - DisableHttpsRedirection=${DisableHttpsRedirection:-true}
     ports:
@@ -29,10 +28,7 @@ services:
       # Persist SQLite DB and runtime-generated files under /data
       - ppsnr-data:/data
       - ./PPSNR.Server/appsettings.Production.json:/app/appsettings.Production.json:ro
-    secrets:
-      - twitch_client_id
-      - twitch_client_secret
-      - db_connection
+    # Note: Docker secrets (Swarm) removed. Use .env or host env vars instead.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/" ]
@@ -40,18 +36,6 @@ services:
       timeout: 5s
       retries: 3
 
-# Declare secrets. These are expected to be created on the remote host (docker swarm or Docker secrets).
-# If you don't create these secrets, the service will still work using values from the .env file.
-secrets:
-  twitch_client_id:
-    external: true
-    # name: twitch_client_id
-  twitch_client_secret:
-    external: true
-    # name: twitch_client_secret
-  db_connection:
-    external: true
-    # name: db_connection
 
 volumes:
   ppsnr-data:
