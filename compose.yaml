@@ -4,9 +4,9 @@
     environment:
       - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
       - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
-      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_URLS=http://+:5271
     ports:
-      - "8080:8080"
+      - "5271"
     build:
       context: .
       dockerfile: PPSNR.Server/Dockerfile
