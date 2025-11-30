@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using PPSNR.Server.Components;
 using PPSNR.Server.Components.Account;
 using PPSNR.Server.Data;
 using PPSNR.Server.Services;
 using PPSNR.Server.Hubs;
+using Microsoft.AspNetCore.Hosting.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -162,6 +164,96 @@ else
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
+}
+
+// Ensure the SQLite database file and its directory exist and apply migrations at startup.
+// This will create the database if it doesn't exist and keep schema up to date.
+using (var scope = app.Services.CreateScope())
+{
+    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+    var logger = loggerFactory.CreateLogger("Startup");
+    try
+    {
+        // Skip DB initialization when running under TestServer (unit/integration tests)
+        var server = scope.ServiceProvider.GetService<IServer>();
+        var serverAsm = server?.GetType().Assembly.GetName().Name;
+        var isTestServer = string.Equals(serverAsm, "Microsoft.AspNetCore.TestHost", StringComparison.Ordinal);
+        if (isTestServer)
+        {
+            logger.LogInformation("Detected TestServer; skipping database initialization/migrations.");
+            goto AfterDbInit;
+        }
+
+        var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        var connStr = cfg.GetConnectionString("DefaultConnection");
+        if (!string.IsNullOrWhiteSpace(connStr))
+        {
+            // Parse Data Source and ensure its directory exists (for file-based SQLite)
+            var csb = new SqliteConnectionStringBuilder(connStr);
+            var dataSource = csb.DataSource;
+            if (!string.IsNullOrWhiteSpace(dataSource))
+            {
+                var dir = Path.GetDirectoryName(dataSource);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+            }
+        }
+
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        // Detect the ACTUAL connection used by the context (tests replace it with in-memory Sqlite)
+        var actualConn = db.Database.GetDbConnection() as SqliteConnection;
+        var isMemory = actualConn != null &&
+                       (
+                           string.Equals(actualConn.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+                           || actualConn.ConnectionString?.Contains("Mode=Memory", StringComparison.OrdinalIgnoreCase) == true
+                       );
+
+        if (isMemory)
+        {
+            // In-memory schema must be created with EnsureCreated and cannot use Migrate
+            db.Database.EnsureCreated();
+        }
+        else
+        {
+            // For file-based SQLite, decide between EnsureCreated (fresh DB) and Migrate (existing DB with history)
+            bool hasHistory;
+            try
+            {
+                var conn = db.Database.GetDbConnection();
+                if (conn.State != System.Data.ConnectionState.Open)
+                {
+                    await conn.OpenAsync();
+                }
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory' LIMIT 1;";
+                var result = await cmd.ExecuteScalarAsync();
+                hasHistory = result != null && result != DBNull.Value;
+            }
+            catch
+            {
+                // If inspection fails, fall back to Migrate which will create DB file
+                hasHistory = true;
+            }
+
+            if (hasHistory)
+            {
+                db.Database.Migrate();
+            }
+            else
+            {
+                db.Database.EnsureCreated();
+            }
+        }
+    AfterDbInit: { }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error while ensuring database exists and applying migrations.");
+        throw;
+    }
 }
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
