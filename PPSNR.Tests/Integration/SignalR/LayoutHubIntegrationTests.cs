@@ -67,9 +67,9 @@ public class LayoutHubIntegrationTests
         var receivedB = new TaskCompletionSource<object>();
         var receivedOther = new TaskCompletionSource<object>();
 
-        clientA.On<object>("SlotUpdated", payload => receivedA.TrySetResult(payload));
-        clientB.On<object>("SlotUpdated", payload => receivedB.TrySetResult(payload));
-        clientOther.On<object>("SlotUpdated", payload => receivedOther.TrySetResult(payload));
+        clientA.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", env => receivedA.TrySetResult(env));
+        clientB.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", env => receivedB.TrySetResult(env));
+        clientOther.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", env => receivedOther.TrySetResult(env));
 
         await clientA.StartAsync();
         await clientB.StartAsync();
@@ -85,9 +85,10 @@ public class LayoutHubIntegrationTests
         await using var scope = factory.Services.CreateAsyncScope();
         var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<LayoutHub>>();
 
-        // broadcast to target group
+        // broadcast to target group using typed envelope
         var payloadObj = new { Message = "Hello", Pair = pairId };
-        await hubContext.Clients.Group(pairId).SendCoreAsync("SlotUpdated", new object[] { payloadObj });
+        var envelope = new PPSNR.Shared.SignalR.SignalRMessageEnvelope { Type = "Test", Data = System.Text.Json.JsonSerializer.SerializeToElement(payloadObj) };
+        await hubContext.Clients.Group(pairId).SendCoreAsync("Message", new object[] { envelope });
 
         var a = await WaitOrTimeout(receivedA.Task, TimeSpan.FromSeconds(10));
         var b = await WaitOrTimeout(receivedB.Task, TimeSpan.FromSeconds(10));

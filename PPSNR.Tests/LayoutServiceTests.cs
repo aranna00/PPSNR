@@ -49,9 +49,14 @@ public class LayoutServiceTests
         var mockHub = new Mock<IHubContext<LayoutHub>>();
         mockHub.Setup(h => h.Clients).Returns(mockClients.Object);
 
+        // Mock IConfiguration and ILogger
+        var mockConfig = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
+        mockConfig.Setup(c => c[It.IsAny<string>()]).Returns((string?)null);
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<Server.Services.LayoutService>>();
+
         using (var ctx = new Server.Data.ApplicationDbContext(options))
         {
-            var service = new Server.Services.LayoutService(ctx, mockHub.Object);
+            var service = new Server.Services.LayoutService(ctx, mockHub.Object, mockConfig.Object, mockLogger.Object);
             var existing = await ctx.Slots.Include(s => s.Layout).FirstAsync();
             existing.X = 10;
             existing.Y = 20;
@@ -80,8 +85,8 @@ public class LayoutServiceTests
             s.Index.Should().Be(2);
         }
 
-        // Verify broadcast occurred
-        mockClientProxy.Verify(c => c.SendCoreAsync("SlotUpdated", It.IsAny<object[]>(), It.IsAny<CancellationToken>()), Times.Once);
+        // Verify broadcast occurred (Message envelope)
+        mockClientProxy.Verify(c => c.SendCoreAsync("Message", It.IsAny<object[]>(), It.IsAny<CancellationToken>()), Times.Once);
 
         connection.Close();
     }

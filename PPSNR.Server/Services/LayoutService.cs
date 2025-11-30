@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PPSNR.Server.Data;
 using PPSNR.Server.Data.Entities;
 using PPSNR.Server.Hubs;
+using PPSNR.Shared.SignalR;
 
 namespace PPSNR.Server.Services;
 
@@ -10,11 +11,18 @@ public class LayoutService
 {
     private readonly ApplicationDbContext _db;
     private readonly IHubContext<LayoutHub> _hub;
+    private readonly IConfiguration _config;
+    private readonly ILogger<LayoutService> _log;
+    private readonly bool _loggingEnabled;
 
-    public LayoutService(ApplicationDbContext db, IHubContext<LayoutHub> hub)
+    public LayoutService(ApplicationDbContext db, IHubContext<LayoutHub> hub, IConfiguration config, ILogger<LayoutService> log)
     {
         _db = db;
         _hub = hub;
+        _config = config;
+        _log = log;
+        var v = _config["ENABLE_SIGNALR_LOGGING"] ?? _config["EnableSignalRLogging"]; // accept either casing
+        _loggingEnabled = !string.IsNullOrEmpty(v) && (string.Equals(v, "1") || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<PairLink> CreateOrRotatePairLinkAsync(Guid pairId, CancellationToken ct = default)
@@ -131,24 +139,40 @@ public class LayoutService
         // Derive size to include in broadcast from AdditionalProperties
         var (bw, bh) = TryGetSizeFromAdditional(existing.AdditionalProperties);
 
-        await _hub.Clients.Group(pairId.ToString()).SendAsync("SlotUpdated", new
+        // Build a typed DTO for the update
+        var slotDto = new SlotUpdatedDto
         {
-            existing.Id,
-            existing.LayoutId,
+            Id = existing.Id,
+            LayoutId = existing.LayoutId,
+            Profile = (int?)slot.Profile,
             X = slot.X,
             Y = slot.Y,
             ZIndex = slot.ZIndex,
             Visible = slot.Visible,
-            existing.ImageUrl,
-            existing.SlotType,
-            existing.Index,
-            existing.AdditionalProperties,
-            // Include size so clients can update live placement sizes without waiting for reload
+            ImageUrl = existing.ImageUrl,
+            AdditionalProperties = existing.AdditionalProperties,
             Width = bw,
-            Height = bh,
-            // Broadcast with the profile whose placement changed
-            Profile = slot.Profile
-        }, ct);
+            Height = bh
+        };
+
+        try
+        {
+            // Send typed envelope on "Message"
+            var envelope = new SignalRMessageEnvelope
+            {
+                Type = "SlotUpdated",
+                Data = System.Text.Json.JsonSerializer.SerializeToElement(slotDto)
+            };
+
+            if (_loggingEnabled) _log.LogInformation("Broadcasting SignalR Message: {Type} for Pair {PairId}", envelope.Type, pairId);
+            await _hub.Clients.Group(pairId.ToString()).SendAsync("Message", envelope);
+        }
+        catch (Exception ex)
+        {
+            if (_loggingEnabled) _log.LogWarning(ex, "Failed to broadcast SignalR Message for Pair {PairId}", pairId);
+        }
+
+        // Return the updated slot entity
         return existing;
     }
 
@@ -218,10 +242,19 @@ public class LayoutService
         // Optional: broadcast a bulk reset event so connected editors can refresh quickly
         try
         {
-            // Broadcast a parameterless event to avoid client signature mismatches
-            await _hub.Clients.Group(pairId.ToString()).SendAsync("PlacementsReset");
+            // Send new envelope for typed messaging
+            var resetEnvelope = new SignalRMessageEnvelope
+            {
+                Type = "PlacementsReset",
+                Data = null
+            };
+            if (_loggingEnabled) _log.LogInformation("Broadcasting SignalR Message: PlacementsReset for Pair {PairId}", pairId);
+            await _hub.Clients.Group(pairId.ToString()).SendAsync("Message", resetEnvelope);
         }
-        catch { /* non-fatal */ }
+        catch (Exception ex)
+        {
+            if (_loggingEnabled) _log.LogWarning(ex, "Failed to broadcast PlacementsReset for Pair {PairId}", pairId);
+        }
 
         return changed;
     }

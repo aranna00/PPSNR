@@ -12,6 +12,32 @@ using PPSNR.Server.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load .env file (simple KEY=VALUE parser) so developers can toggle features locally
+var envFile = Path.Combine(AppContext.BaseDirectory, ".env");
+if (!File.Exists(envFile))
+{
+    // also try repository root
+    envFile = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+}
+if (File.Exists(envFile))
+{
+    foreach (var line in File.ReadAllLines(envFile))
+    {
+        var trimmed = line.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+        var idx = trimmed.IndexOf('=');
+        if (idx <= 0) continue;
+        var key = trimmed.Substring(0, idx).Trim();
+        var value = trimmed.Substring(idx + 1).Trim();
+        // remove optional quotes
+        if ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'")))
+        {
+            value = value.Substring(1, value.Length - 2);
+        }
+        Environment.SetEnvironmentVariable(key, value);
+    }
+}
+
 // Configuration
 var config = builder.Configuration;
 

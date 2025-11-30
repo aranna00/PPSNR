@@ -4,7 +4,6 @@
 @rendermode InteractiveServer
 @using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
-@using Microsoft.EntityFrameworkCore
 @inject ApplicationDbContext Db
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
@@ -135,117 +134,56 @@ else
 
         // SignalR to see live updates from other editors
         hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
-        hub.On<object>("SlotUpdated", payload =>
+        // Typed envelope handler for forward-compatible messages
+        hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
         {
             try
             {
-                Guid id;
-                int? profile = null;
-                float? x = null;
-                float? y = null;
-                int? z = null;
-                bool? vis = null;
-                string? img = null;
-                bool imgPresent = false;
-                string? add = null;
-                bool addPresent = false;
-                int? width = null;
-                int? height = null;
+                if (envelope == null) return;
+                if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                {
+                    var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
+                    if (dto == null) return;
 
-                // Case 1: already a JsonElement
-                if (payload is System.Text.Json.JsonElement el)
-                {
-                    if (!TryGetPropertyCI(el, "Id", out var idProp)) return; // ignore unknown payloads
-                    id = idProp.GetGuid();
-                    if (TryGetPropertyCI(el, "X", out var xProp)) x = (float)xProp.GetDouble();
-                    if (TryGetPropertyCI(el, "Y", out var yProp)) y = (float)yProp.GetDouble();
-                    if (TryGetPropertyCI(el, "ZIndex", out var zProp)) z = zProp.GetInt32();
-                    if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
-                    if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
-                    if (TryGetPropertyCI(el, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
-                    if (TryGetPropertyCI(el, "Width", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number) width = (int)wProp.GetDouble();
-                    if (TryGetPropertyCI(el, "Height", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number) height = (int)hProp.GetDouble();
-                    if (TryGetPropertyCI(el, "Profile", out var pr)) profile = pr.GetInt32();
-                }
-                // Case 2: dictionary (sometimes SignalR transports as dict)
-                else if (payload is IDictionary<string, object> dict)
-                {
-                    if (!TryGetValueCI(dict, "Id", out var idObj) || idObj is null || !Guid.TryParse(idObj.ToString(), out id)) return;
-                    if (TryGetValueCI(dict, "X", out var xObj) && float.TryParse(xObj?.ToString(), out var xv)) x = xv;
-                    if (TryGetValueCI(dict, "Y", out var yObj) && float.TryParse(yObj?.ToString(), out var yv)) y = yv;
-                    if (TryGetValueCI(dict, "ZIndex", out var zObj) && int.TryParse(zObj?.ToString(), out var zv)) z = zv;
-                    if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
-                    if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
-                    if (TryGetValueCI(dict, "AdditionalProperties", out var aObj)) { addPresent = true; add = aObj == null ? null : aObj.ToString(); }
-                    if (TryGetValueCI(dict, "Width", out var wObj) && int.TryParse(wObj?.ToString(), out var wv)) width = wv;
-                    if (TryGetValueCI(dict, "Height", out var hObj) && int.TryParse(hObj?.ToString(), out var hv)) height = hv;
-                    if (TryGetValueCI(dict, "Profile", out var pObj) && int.TryParse(pObj?.ToString(), out var pv)) profile = pv;
-                }
-                else
-                {
-                    // Fallback: serialize and parse
-                    var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
-                    if (!TryGetPropertyCI(json.RootElement, "Id", out var idProp)) return;
-                    id = idProp.GetGuid();
-                    if (TryGetPropertyCI(json.RootElement, "X", out var xProp)) x = (float)xProp.GetDouble();
-                    if (TryGetPropertyCI(json.RootElement, "Y", out var yProp)) y = (float)yProp.GetDouble();
-                    if (TryGetPropertyCI(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
-                    if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
-                    if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
-                    if (TryGetPropertyCI(json.RootElement, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
-                    if (TryGetPropertyCI(json.RootElement, "Width", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number) width = (int)wProp.GetDouble();
-                    if (TryGetPropertyCI(json.RootElement, "Height", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number) height = (int)hProp.GetDouble();
-                    if (TryGetPropertyCI(json.RootElement, "Profile", out var pr)) profile = pr.GetInt32();
-                }
+                    var id = dto.Id;
+                    var profile = dto.Profile;
+                    var x = dto.X;
+                    var y = dto.Y;
+                    var z = dto.ZIndex;
+                    var vis = dto.Visible;
+                    var img = dto.ImageUrl;
+                    var add = dto.AdditionalProperties;
+                    var width = dto.Width;
+                    var height = dto.Height;
 
-                var slot = slots.FirstOrDefault(s => s.Id == id);
-                if (slot != null)
-                {
-                    // Apply placement changes only if the event targets the current editor profile
-                    if (profile != null && (int)editProfile == profile)
+                    var slot = slots.FirstOrDefault(s => s.Id == id);
+                    if (slot != null)
                     {
-                        if (placements.TryGetValue(slot.Id, out var pl))
+                        if (profile != null && (int)editProfile == profile)
                         {
-                            if (x.HasValue) pl.X = x.Value;
-                            if (y.HasValue) pl.Y = y.Value;
-                            if (z.HasValue) pl.ZIndex = z.Value;
-                            if (vis.HasValue) pl.Visible = vis.Value;
-                            if (width.HasValue) pl.Width = width.Value;
-                            if (height.HasValue) pl.Height = height.Value;
+                            if (placements.TryGetValue(slot.Id, out var pl))
+                            {
+                                if (x.HasValue) pl.X = x.Value;
+                                if (y.HasValue) pl.Y = y.Value;
+                                if (z.HasValue) pl.ZIndex = z.Value;
+                                if (vis.HasValue) pl.Visible = vis.Value;
+                                if (width.HasValue) pl.Width = width.Value;
+                                if (height.HasValue) pl.Height = height.Value;
+                            }
                         }
+                        if (dto.ImageUrl != null)
+                        {
+                            slot.ImageUrl = dto.ImageUrl;
+                        }
+                        if (dto.AdditionalProperties != null)
+                        {
+                            slot.AdditionalProperties = dto.AdditionalProperties;
+                        }
+                        InvokeAsync(StateHasChanged);
                     }
-                    if (imgPresent)
-                    {
-                        // Update ImageUrl when it's explicitly present (including null)
-                        slot.ImageUrl = img;
-                    }
-                    if (addPresent)
-                    {
-                        slot.AdditionalProperties = add;
-                    }
-                    InvokeAsync(StateHasChanged);
                 }
             }
-            catch
-            {
-                // Ignore malformed events
-            }
-        });
-        // React to bulk reset events (no payload). Reload placements from DB and re-render.
-        hub.On("PlacementsReset", () =>
-        {
-            try
-            {
-                if (_disposed) return;
-                InvokeAsync(async () =>
-                {
-                    await ReloadPlacementsForCurrentProfileAsync();
-                    // Defer JS call to OnAfterRenderAsync to avoid JS during disconnect/prerender
-                    _pendingClearInlineGeometry = true;
-                    StateHasChanged();
-                });
-            }
-            catch { /* ignore */ }
+            catch { /* ignore malformed messages */ }
         });
         await hub.StartAsync();
         await hub.SendAsync("SubscribeToPair", pairId.ToString());
@@ -261,7 +199,7 @@ else
                 await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
                 _jsReady = true;
             }
-            catch (Microsoft.JSInterop.JSDisconnectedException)
+            catch (JSDisconnectedException)
             {
                 // Circuit not ready; will try again on next render
                 _jsReady = false;
@@ -279,7 +217,7 @@ else
             {
                 await JS.InvokeVoidAsync("PPSNR_Drag.clearInlineGeometry");
             }
-            catch (Microsoft.JSInterop.JSDisconnectedException)
+            catch (JSDisconnectedException)
             {
                 // Ignore; circuit disconnected
             }

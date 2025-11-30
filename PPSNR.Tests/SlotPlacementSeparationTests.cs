@@ -55,7 +55,10 @@ public class SlotPlacementSeparationTests
         // Act: update the slot as Owner with new geometry and additional size
         using (var ctx = new Server.Data.ApplicationDbContext(options))
         {
-            var service = new Server.Services.LayoutService(ctx, mockHub.Object);
+            var mockConfig = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
+            mockConfig.Setup(c => c[It.IsAny<string>()]).Returns((string?)null);
+            var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<Server.Services.LayoutService>>();
+            var service = new Server.Services.LayoutService(ctx, mockHub.Object, mockConfig.Object, mockLogger.Object);
             var s = await ctx.Slots.FirstAsync(x => x.Id == slotId);
             s.Profile = SlotProfile.Owner; // ensure we edit as Owner
             s.X = 50;

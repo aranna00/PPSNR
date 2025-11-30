@@ -235,6 +235,48 @@
                 // Swallow malformed payloads; they may target other pages/profiles.
             }
         });
+        // Typed envelope handler for forward-compatible messages
+        _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
+        {
+            try
+            {
+                if (envelope == null) return;
+                if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                {
+                    var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
+                    if (dto == null) return;
+
+                    var id = dto.Id;
+                    var profile = dto.Profile;
+                    var imageUrl = dto.ImageUrl;
+                    var x = dto.X;
+                    var y = dto.Y;
+                    var z = dto.ZIndex;
+                    var visible = dto.Visible;
+
+                    var slot = allSlots.FirstOrDefault(s => s.Id == id);
+                    if (slot != null)
+                    {
+                        if (imageUrl != null) slot.ImageUrl = imageUrl;
+                        if (profile != null && (int)profile == (int)(_isOwner ? SlotProfile.Owner : SlotProfile.Partner))
+                        {
+                            if (_placements.TryGetValue(slot.Id, out var placement))
+                            {
+                                if (visible.HasValue) placement.Visible = visible.Value;
+                                if (x.HasValue) placement.X = x.Value;
+                                if (y.HasValue) placement.Y = y.Value;
+                                if (z.HasValue) placement.ZIndex = z.Value;
+                            }
+                        }
+                        InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore malformed envelope
+            }
+        });
         await _hub.StartAsync();
         await _hub.SendAsync("SubscribeToPair", PairId.ToString());
     }
@@ -286,8 +328,6 @@
     {
         _hub?.DisposeAsync();
     }
-
-    // (Pokemon selection logic moved into PokemonChooser component)
 
     private bool GetVisible(Slot s)
     {
