@@ -6,7 +6,7 @@
       - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
       - ASPNETCORE_URLS=http://+:8080
     ports:
-      - "8080:8080"
+      - "5271"
     build:
       context: .
       dockerfile: PPSNR.Server/Dockerfile
