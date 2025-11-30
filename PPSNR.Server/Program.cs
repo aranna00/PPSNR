@@ -30,7 +30,7 @@ if (File.Exists(envFile))
         var key = trimmed.Substring(0, idx).Trim();
         var value = trimmed.Substring(idx + 1).Trim();
         // remove optional quotes
-        if ((value.StartsWith("\"") && value.EndsWith("\"")) || (value.StartsWith("'") && value.EndsWith("'")))
+        if ((value.StartsWith('\"') && value.EndsWith('\"')) || (value.StartsWith('\'') && value.EndsWith('\'')))
         {
             value = value.Substring(1, value.Length - 2);
         }
