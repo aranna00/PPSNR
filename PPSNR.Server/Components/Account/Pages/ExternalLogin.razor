@@ -137,11 +137,39 @@
 
             return;
         }
+        // If the user does not have an account, auto-create one and link the external login.
+        var email = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.Email);
+        var displayName = externalLoginInfo.Principal.Identity?.Name;
+        var providerKey = externalLoginInfo.ProviderKey;
+        var userName = email ?? (!string.IsNullOrWhiteSpace(displayName)
+            ? displayName.Replace(" ", "_").ToLowerInvariant()
+            : $"{externalLoginInfo.LoginProvider.ToLowerInvariant()}_{providerKey}");
 
-        // If the user does not have an account, then ask the user to create an account.
-        if (externalLoginInfo.Principal.HasClaim(c => c.Type == ClaimTypes.Email))
+        var user = new ApplicationUser
         {
-            Input.Email = externalLoginInfo.Principal.FindFirstValue(ClaimTypes.Email) ?? "";
+            UserName = userName,
+            Email = email
+        };
+
+        var createResult = await UserManager.CreateAsync(user);
+        if (createResult.Succeeded)
+        {
+            var linkResult = await UserManager.AddLoginAsync(user, externalLoginInfo);
+            if (linkResult.Succeeded)
+            {
+                Logger.LogInformation("User auto-created using {Name} provider.", externalLoginInfo.LoginProvider);
+                await SignInManager.SignInAsync(user, isPersistent: false, externalLoginInfo.LoginProvider);
+                RedirectManager.RedirectTo(ReturnUrl);
+                return;
+            }
+            else
+            {
+                message = $"Error linking external login: {string.Join(",", linkResult.Errors.Select(e => e.Description))}";
+            }
+        }
+        else
+        {
+            message = $"Error creating user: {string.Join(",", createResult.Errors.Select(e => e.Description))}";
         }
     }
 

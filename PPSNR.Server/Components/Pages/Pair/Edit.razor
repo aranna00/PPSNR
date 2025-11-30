@@ -52,7 +52,7 @@ else
             @foreach (var s in slots.Where(x => x.LayoutId == l.Id))
             {
                 <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id.ToString()" data-layout-id="@l.Id.ToString()" data-z-index="@GetZIndex(s).ToString()" data-visible="@GetVisibleAttr(s)" data-image-url="@GetImageSrc(s)" data-index="@s.Index.ToString()">
-                    <img src="@GetImageSrc(s)" draggable="false" alt="slot" />
+                    <img src="@GetImageSrc(s)" draggable="false" alt="@(s.SlotType is SlotType.Pokemon ? "Pokemon" : "Badge")" />
                     <span class="resizer nw" data-dir="nw"></span>
                     <span class="resizer n" data-dir="n"></span>
                     <span class="resizer ne" data-dir="ne"></span>

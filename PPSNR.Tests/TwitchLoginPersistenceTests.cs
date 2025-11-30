@@ -52,12 +52,9 @@ public class TwitchLoginPersistenceTests
     [Test]
     public async Task Protected_endpoint_does_not_rechallenge_after_login()
     {
-        // Initial access to protected endpoint should challenge (302). In production this would
-        // redirect to /auth/login; with our fake handler wiring it may redirect to '/'. We just
-        // assert it's a redirect and proceed to perform a login.
+        // Initial access to protected endpoint should return 401 (no automatic external challenge)
         var first = await _client.GetAsync("/api/admin/pairs");
-        first.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        first.Headers.Location.Should().NotBeNull();
+        first.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // Perform login
         var login = await _client.GetAsync("/auth/login?returnUrl=/");

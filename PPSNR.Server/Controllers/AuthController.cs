@@ -9,13 +9,22 @@ namespace PPSNR.Server.Controllers;
 public class AuthController : ControllerBase
 {
     [HttpGet("login")]
-    public IActionResult Login([FromQuery] string? returnUrl = null)
+    public async Task<IActionResult> Login([FromQuery] string? returnUrl = null)
     {
-        var props = new AuthenticationProperties
+        var targetUrl = string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl;
+
+        // If Twitch scheme is registered, challenge it to perform external login
+        var schemes = HttpContext.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        var twitchScheme = await schemes.GetSchemeAsync("Twitch");
+        if (twitchScheme != null)
         {
-            RedirectUri = string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl
-        };
-        return Challenge(props, "Twitch");
+            var props = new AuthenticationProperties { RedirectUri = targetUrl };
+            return Challenge(props, "Twitch");
+        }
+
+        // Otherwise redirect to local login UI
+        var loginUi = $"/Account/Login?ReturnUrl={Uri.EscapeDataString(targetUrl)}";
+        return Redirect(loginUi);
     }
 
     [HttpPost("logout")]

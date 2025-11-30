@@ -65,60 +65,59 @@ builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuth
 // Add MVC controllers for API endpoints under /api (e.g., antiforgery token, layout, images)
 builder.Services.AddControllers();
 
-// Consolidate authentication defaults. Twitch is required and is the default challenge provider.
-// Identity cookies are still used for application sign-in state.
-var twitchClientId = config["Authentication:Twitch:ClientId"];
-var twitchClientSecret = config["Authentication:Twitch:ClientSecret"];
-if (string.IsNullOrWhiteSpace(twitchClientId) || string.IsNullOrWhiteSpace(twitchClientSecret))
-{
-    throw new InvalidOperationException("Twitch authentication is required: set Authentication:Twitch:ClientId and Authentication:Twitch:ClientSecret in configuration or environment variables.");
-}
+// Authentication defaults: Identity cookies are used for sign-in state. Twitch is optional.
+// If Twitch credentials are provided, the external scheme will be available, but local accounts
+// remain the primary login method.
+var twitchClientId = config["TWITCH_CLIENT_ID"] ?? config["Authentication:Twitch:ClientId"];
+var twitchClientSecret = config["TWITCH_CLIENT_SECRET"] ?? config["Authentication:Twitch:ClientSecret"];
 
 builder.Services
        .AddAuthentication(options =>
        {
-           // Use Identity application cookie as default scheme, Challenge goes to Twitch
+           // Use Identity application cookie as default scheme
            options.DefaultScheme = IdentityConstants.ApplicationScheme;
-           // Sign successful external (Twitch) logins directly into the application cookie
-           // so the auth state persists across requests and we don't keep challenging.
+           // Sign successful external logins into the application cookie
            options.DefaultSignInScheme = IdentityConstants.ApplicationScheme;
-           options.DefaultChallengeScheme = "Twitch";
+           // Do not set DefaultChallengeScheme globally; local login UI is the default.
        })
        .AddIdentityCookies();
 
-// Register Twitch unconditionally (we failed-fast above if keys were missing)
-builder.Services
-    .AddAuthentication()
-    .AddTwitch("Twitch", options =>
-    {
-        options.ClientId = twitchClientId;
-        options.ClientSecret = twitchClientSecret;
-        options.SaveTokens = true;
-        options.CallbackPath = "/auth/twitch/callback";
-
-        // Use a hardened backchannel client to avoid TLS/HTTP version issues that can
-        // surface as TaskCanceledException during code exchange.
-        var handler = new SocketsHttpHandler
+// Register Twitch only when credentials are supplied
+if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twitchClientSecret))
+{
+    builder.Services
+        .AddAuthentication()
+        .AddTwitch("Twitch", options =>
         {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            options.ClientId = twitchClientId;
+            options.ClientSecret = twitchClientSecret;
+            options.SaveTokens = true;
+            options.CallbackPath = "/auth/twitch/callback";
+
+            // Use a hardened backchannel client to avoid TLS/HTTP version issues that can
+            // surface as TaskCanceledException during code exchange.
+            var handler = new SocketsHttpHandler
             {
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-            },
-            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            ConnectTimeout = TimeSpan.FromSeconds(15)
-        };
-        options.Backchannel = new HttpClient(handler)
-        {
-            Timeout = TimeSpan.FromSeconds(60),
-            DefaultRequestVersion = HttpVersion.Version11,
-            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
-        };
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+                SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+                {
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                },
+                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+                ConnectTimeout = TimeSpan.FromSeconds(15)
+            };
+            options.Backchannel = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(60),
+                DefaultRequestVersion = HttpVersion.Version11,
+                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
+            };
 
-        // Correlation cookie must allow cross-site in external login roundtrip
-        options.CorrelationCookie.SameSite = SameSiteMode.None;
-        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
-    });
+            // Correlation cookie must allow cross-site in external login roundtrip
+            options.CorrelationCookie.SameSite = SameSiteMode.None;
+            options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
+        });
+}
 
 var connectionString = builder.Configuration.GetConnectionString
                            ("DefaultConnection")
@@ -141,7 +140,8 @@ builder.Services
        .AddIdentityCore<ApplicationUser>
             (options =>
             {
-                options.SignIn.RequireConfirmedAccount = true;
+                // Allow immediate sign-in for newly auto-created accounts (including Twitch)
+                options.SignIn.RequireConfirmedAccount = false;
                 options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
             })
        .AddEntityFrameworkStores<ApplicationDbContext>()

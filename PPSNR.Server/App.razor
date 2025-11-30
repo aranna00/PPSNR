@@ -4,7 +4,7 @@
         <Found Context="data">
             <AuthorizeRouteView RouteData="@data" DefaultLayout="@typeof(MainLayout)">
                 <NotAuthorized>
-                    <p>You are not authorized. Please <a href="@LoginUrl">login with Twitch</a>.</p>
+                    <p>You are not authorized. Please <a href="/Account/Login">log in</a>.</p>
                 </NotAuthorized>
                 <Authorizing>
                     <p>Authorizing...</p>
@@ -17,5 +17,4 @@
 
 @code {
     [Inject] NavigationManager? Nav { get; set; }
-    private string LoginUrl => $"/auth/login?returnUrl={Uri.EscapeDataString(Nav?.Uri ?? string.Empty)}";
 }
