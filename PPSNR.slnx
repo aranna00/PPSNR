@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".env" />
+    <File Path=".gitignore" />
     <File Path="compose.yaml" />
   </Folder>
   <Project Path="PPSNR.Server/PPSNR.Server.csproj" />
