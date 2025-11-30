@@ -144,7 +144,10 @@
         _badgeSlots = allSlots.Where(s => s.SlotType == SlotType.Badge).ToList();
 
         // SignalR for live updates
-        _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+        _hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
+            .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
+            .Build();
         _hub.On<object>("SlotUpdated", payload =>
         {
             try

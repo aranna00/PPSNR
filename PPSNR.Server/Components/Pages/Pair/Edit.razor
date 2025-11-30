@@ -133,7 +133,10 @@ else
         await NormalizeSlotImagesAsync(slots);
 
         // SignalR to see live updates from other editors
-        hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+        hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
+            .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
+            .Build();
         // Typed envelope handler for forward-compatible messages
         hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
         {

@@ -99,7 +99,11 @@
     {
         if (firstRender && _authorized && _hub == null)
         {
-            _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/layout")).WithAutomaticReconnect().Build();
+
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
+                .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
+                .Build();
             // Typed envelope handler for forward-compatible messages (legacy dynamic handlers removed)
             _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
             {
