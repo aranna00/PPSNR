@@ -3,8 +3,9 @@
 @rendermode InteractiveServer
 @using System.Collections.Generic
 @using PPSNR.Server.Components.Layout
+@using Microsoft.EntityFrameworkCore
 @using PPSNR.Server.Data.Entities
-@inject ApplicationDbContext Db
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
 @inject PPSNR.Server.Services.ImagesCacheService ImagesCache
 
@@ -16,14 +17,20 @@
 </style>
 
 <div id="canvas">
-    @foreach (var s in _slots.Where(s => s.Visible && !string.IsNullOrEmpty(s.ImageUrl)))
+    @foreach (var s in _slots)
     {
-        <img class="slot-img"
-             src="@s.ImageUrl"
-             style="left:@(s.X)px; top:@(s.Y)px; z-index:@s.ZIndex;"
-             width="@GetWidth(s)"
-             height="@GetHeight(s)"
-             alt="slot"/>
+        // Render positions based on the VIEWER's profile placement (Owner or Partner)
+        // for all slots. This ensures Owner sees/edits Owner placements for both
+        // Owner and Partner Pokémon, and Partner sees/edits Partner placements.
+        if (_placements.TryGetValue((s.Id, _viewProfile), out var p) && p.Visible && !string.IsNullOrEmpty(s.ImageUrl))
+        {
+            <img class="slot-img"
+                 src="@s.ImageUrl"
+                 style="left:@(p.X)px; top:@(p.Y)px; z-index:@p.ZIndex;"
+                 width="@(p.Width ?? GetWidth(s))"
+                 height="@(p.Height ?? GetHeight(s))"
+                 alt="slot"/>
+        }
     }
     
 </div>
@@ -35,6 +42,8 @@
     private StreamerPair? _pair;
     private List<Layout> _layouts = new();
     private List<Slot> _slots = new();
+    // Store placements for both profiles, keyed by (SlotId, Profile)
+    private Dictionary<(Guid, SlotProfile), SlotPlacement> _placements = new();
     private HubConnection? _hub;
     private bool _authorized;
     private SlotProfile _viewProfile;
@@ -42,7 +51,8 @@
     protected override async Task OnInitializedAsync()
     {
         // Validate token: accept either OwnerViewToken (owner view) or ViewToken (partner view)
-        var link = Db.PairLinks.FirstOrDefault(l => l.PairId == PairId);
+        await using var dbInit = await DbFactory.CreateDbContextAsync();
+        var link = dbInit.PairLinks.FirstOrDefault(l => l.PairId == PairId);
         if (link != null && (link.ExpiresAt == null || link.ExpiresAt > DateTime.UtcNow))
         {
             if (link.OwnerViewToken == Token)
@@ -70,13 +80,19 @@
             return;
         }
 
-        _pair = Db.Pairs.FirstOrDefault(p => p.Id == PairId);
+        _pair = dbInit.Pairs.FirstOrDefault(p => p.Id == PairId);
         if (_pair == null) return;
-        _layouts = Db.Layouts.Where(l => l.PairId == PairId).ToList();
+        _layouts = dbInit.Layouts.Where(l => l.PairId == PairId).ToList();
         var layoutIds = _layouts.Select(l => l.Id).ToList();
-        _slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == _viewProfile)
+        _slots = dbInit.Slots.Where(s => layoutIds.Contains(s.LayoutId))
                          .OrderBy(s => s.ZIndex)
                          .ToList();
+
+        // Load placements for BOTH profiles so we can render both viewers' Pokémon simultaneously
+        var slotIds = _slots.Select(sl => sl.Id).ToList();
+        _placements = dbInit.SlotPlacements
+            .Where(sp => slotIds.Contains(sp.SlotId))
+            .ToDictionary(sp => (sp.SlotId, sp.Profile), sp => sp);
 
         // Normalize any legacy or external ImageUrl values so images render
         await NormalizeSlotImagesAsync(_slots);
@@ -92,12 +108,13 @@
                 try
                 {
                     Guid id;
+                    string? img = null;
+                    bool imgPresent = false;
+                    int? profile = null;
                     float? x = null;
                     float? y = null;
                     int? z = null;
                     bool? vis = null;
-                    string? img = null;
-                    bool imgPresent = false;
                     string? add = null;
                     bool addPresent = false;
 
@@ -105,21 +122,23 @@
                     {
                         if (!TryGetPropertyCI(el, "Id", out var idProp)) return;
                         id = idProp.GetGuid();
+                        if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                        if (TryGetPropertyCI(el, "Profile", out var pr)) profile = pr.GetInt32();
                         if (TryGetPropertyCI(el, "X", out var xProp)) x = (float)xProp.GetDouble();
                         if (TryGetPropertyCI(el, "Y", out var yProp)) y = (float)yProp.GetDouble();
                         if (TryGetPropertyCI(el, "ZIndex", out var zProp)) z = zProp.GetInt32();
                         if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
-                        if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
                         if (TryGetPropertyCI(el, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
                     }
                     else if (payload is IDictionary<string, object> dict)
                     {
                         if (!TryGetValueCI(dict, "Id", out var idObj) || idObj is null || !Guid.TryParse(idObj.ToString(), out id)) return;
+                        if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
+                        if (TryGetValueCI(dict, "Profile", out var pObj) && int.TryParse(pObj?.ToString(), out var pv)) profile = pv;
                         if (TryGetValueCI(dict, "X", out var xObj) && float.TryParse(xObj?.ToString(), out var xv)) x = xv;
                         if (TryGetValueCI(dict, "Y", out var yObj) && float.TryParse(yObj?.ToString(), out var yv)) y = yv;
                         if (TryGetValueCI(dict, "ZIndex", out var zObj) && int.TryParse(zObj?.ToString(), out var zv)) z = zv;
                         if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
-                        if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
                         if (TryGetValueCI(dict, "AdditionalProperties", out var aObj)) { addPresent = true; add = aObj == null ? null : aObj.ToString(); }
                     }
                     else
@@ -127,23 +146,38 @@
                         var json = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(payload));
                         if (!TryGetPropertyCI(json.RootElement, "Id", out var idProp)) return;
                         id = idProp.GetGuid();
+                        if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
+                        if (TryGetPropertyCI(json.RootElement, "Profile", out var pr)) profile = pr.GetInt32();
                         if (TryGetPropertyCI(json.RootElement, "X", out var xProp)) x = (float)xProp.GetDouble();
                         if (TryGetPropertyCI(json.RootElement, "Y", out var yProp)) y = (float)yProp.GetDouble();
                         if (TryGetPropertyCI(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
                         if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
-                        if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
                         if (TryGetPropertyCI(json.RootElement, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
                     }
 
                     var slot = _slots.FirstOrDefault(s => s.Id == id);
                     if (slot != null)
                     {
-                        if (x.HasValue) slot.X = x.Value;
-                        if (y.HasValue) slot.Y = y.Value;
-                        if (z.HasValue) slot.ZIndex = z.Value;
-                        if (vis.HasValue) slot.Visible = vis.Value;
                         if (imgPresent) slot.ImageUrl = img;
                         if (addPresent) slot.AdditionalProperties = add;
+                        // Apply placement updates to the placement that matches the payload profile
+                        if (profile != null)
+                        {
+                            var prof = (SlotProfile)profile.Value;
+                            if (_placements.TryGetValue((slot.Id, prof), out var placement))
+                            {
+                                if (x != null) placement.X = x.Value;
+                                if (y != null) placement.Y = y.Value;
+                                if (z != null) placement.ZIndex = z.Value;
+                                if (vis != null) placement.Visible = vis.Value;
+                                if (addPresent)
+                                {
+                                    var (w, h) = GetSizeFromAdditional(slot);
+                                    placement.Width = w;
+                                    placement.Height = h;
+                                }
+                            }
+                        }
                         InvokeAsync(StateHasChanged);
                     }
                 }
@@ -152,9 +186,27 @@
                     // ignore malformed event
                 }
             });
+            // React to bulk reset events (no payload). Reload placements from DB and re-render.
+            _hub.On("PlacementsReset", () =>
+            {
+                try
+                {
+                    InvokeAsync(async () =>
+                    {
+                        await ReloadPlacementsAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { /* ignore */ }
+            });
             await _hub.StartAsync();
             await _hub.SendAsync("SubscribeToPair", PairId.ToString());
         }
+    }
+
+    public void Dispose()
+    {
+        _ = _hub?.DisposeAsync();
     }
 
     private async Task NormalizeSlotImagesAsync(IEnumerable<Slot> list)
@@ -185,12 +237,35 @@
         }
         if (changed)
         {
-            await Db.SaveChangesAsync();
+            await using var db = await DbFactory.CreateDbContextAsync();
+            // Attach and update only changed slots
+            foreach (var s in list.Where(x => !string.IsNullOrWhiteSpace(x.ImageUrl)))
+            {
+                db.Attach(s);
+                db.Entry(s).Property(x => x.ImageUrl).IsModified = true;
+            }
+            await db.SaveChangesAsync();
         }
     }
 }
 
 @code {
+    private async Task ReloadPlacementsAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var slotIds = _slots.Select(sl => sl.Id).ToList();
+            _placements = db.SlotPlacements
+                .Where(sp => slotIds.Contains(sp.SlotId))
+                .ToDictionary(sp => (sp.SlotId, sp.Profile), sp => sp);
+            await Task.CompletedTask;
+        }
+        catch
+        {
+            // ignore reload errors
+        }
+    }
     private static string GetSizeStyle(Slot s)
     {
         var (w, h) = GetSizeFromAdditional(s);

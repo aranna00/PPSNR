@@ -53,6 +53,22 @@
       } catch (e) {
         console.error('[editor-drag] init failed', e);
       }
+    },
+    // Clear inline geometry so Blazor-rendered placement styles take effect
+    clearInlineGeometry(){
+      try{
+        const canvas = document.getElementById('canvas');
+        if (!canvas) return;
+        const elems = Array.from(canvas.querySelectorAll('.drag'));
+        elems.forEach(el => {
+          el.style.left = '';
+          el.style.top = '';
+          el.style.width = '';
+          el.style.height = '';
+          // Keep z-index attribute as data for saves; drop inline to let server-provided style win
+          el.style.zIndex = '';
+        });
+      }catch(e){ console.warn('[editor-drag] clearInlineGeometry failed', e); }
     }
   };
 
@@ -95,6 +111,7 @@
     let start = null;
     let mode = null; // 'drag' or direction: 'n','ne','e','se','s','sw','w','nw'
     let startBox = null;
+    let aspect = 1; // width/height
 
     function onPointerDown(ev){
       // Only respond to primary button / touch
@@ -107,6 +124,7 @@
       pointerId = ev.pointerId || 'mouse';
       start = { x: ev.clientX, y: ev.clientY };
       startBox = getBox(el);
+      aspect = (startBox.height > 0) ? (startBox.width / startBox.height) : 1;
       bringToFront(el);
       try { el.setPointerCapture && el.setPointerCapture(ev.pointerId); } catch {}
       // Prevent native drag image and text selection
@@ -135,37 +153,114 @@
         el.style.left = `${newLeft}px`;
         el.style.top = `${newTop}px`;
       } else {
-        // resize
-        let left = startBox.left;
-        let top = startBox.top;
-        let width = startBox.width;
-        let height = startBox.height;
+        // resize with aspect ratio preserved (smallest edge)
+        // First, compute raw width/height based on handle deltas
+        let rawLeft = startBox.left;
+        let rawTop = startBox.top;
+        let rawWidth = startBox.width;
+        let rawHeight = startBox.height;
 
-        if (mode.indexOf('e') !== -1) width = Math.max(16, startBox.width + dx);
-        if (mode.indexOf('s') !== -1) height = Math.max(16, startBox.height + dy);
+        if (mode.indexOf('e') !== -1) rawWidth = Math.max(16, startBox.width + dx);
+        if (mode.indexOf('s') !== -1) rawHeight = Math.max(16, startBox.height + dy);
         if (mode.indexOf('w') !== -1) {
           const nl = startBox.left + dx;
           const maxLeft = startBox.left + startBox.width - 16;
-          left = clamp(nl, 0, maxLeft);
-          width = startBox.width + (startBox.left - left);
+          rawLeft = clamp(nl, 0, maxLeft);
+          rawWidth = startBox.width + (startBox.left - rawLeft);
         }
         if (mode.indexOf('n') !== -1) {
           const nt = startBox.top + dy;
           const maxTop = startBox.top + startBox.height - 16;
-          top = clamp(nt, 0, maxTop);
-          height = startBox.height + (startBox.top - top);
+          rawTop = clamp(nt, 0, maxTop);
+          rawHeight = startBox.height + (startBox.top - rawTop);
         }
 
-        // constrain within canvas
+        // Compute scale factor using smallest edge
+        const sW = rawWidth / Math.max(1, startBox.width);
+        const sH = rawHeight / Math.max(1, startBox.height);
+        let s = Math.min(sW, sH);
+        s = Math.max(s, 16 / Math.max(1, Math.min(startBox.width, startBox.height))); // enforce min size
+
+        // Apply scaled size maintaining original aspect
+        let width = Math.max(16, startBox.width * s);
+        let height = Math.max(16, startBox.height * s);
+
+        // Position based on handle (anchor opposite side)
+        let left = startBox.left;
+        let top = startBox.top;
+        const dxW = startBox.width - width;
+        const dyH = startBox.height - height;
+        switch (mode) {
+          case 'se':
+            // anchor top-left
+            left = startBox.left;
+            top = startBox.top;
+            break;
+          case 'e':
+            // anchor left center
+            left = startBox.left;
+            top = startBox.top + dyH / 2;
+            break;
+          case 's':
+            // anchor top center
+            left = startBox.left + dxW / 2;
+            top = startBox.top;
+            break;
+          case 'ne':
+            // anchor bottom-left
+            left = startBox.left;
+            top = startBox.top + dyH;
+            break;
+          case 'n':
+            // anchor bottom center
+            left = startBox.left + dxW / 2;
+            top = startBox.top + dyH;
+            break;
+          case 'w':
+            // anchor right center
+            left = startBox.left + dxW;
+            top = startBox.top + dyH / 2;
+            break;
+          case 'sw':
+            // anchor top-right
+            left = startBox.left + dxW;
+            top = startBox.top;
+            break;
+          case 'nw':
+          default:
+            // anchor bottom-right
+            left = startBox.left + dxW;
+            top = startBox.top + dyH;
+            break;
+        }
+
+        // Constrain within canvas while keeping aspect
         const maxW = parentRect.width - left;
         const maxH = parentRect.height - top;
-        width = clamp(width, 16, Math.max(16, maxW));
-        height = clamp(height, 16, Math.max(16, maxH));
+        const sCanvas = Math.min(maxW / Math.max(1, startBox.width), maxH / Math.max(1, startBox.height));
+        if (s > sCanvas) {
+          s = sCanvas;
+          width = Math.max(16, startBox.width * s);
+          height = Math.max(16, startBox.height * s);
+          // recompute left/top for the chosen handle
+          const dxW2 = startBox.width - width;
+          const dyH2 = startBox.height - height;
+          switch (mode) {
+            case 'se': left = startBox.left; top = startBox.top; break;
+            case 'e': left = startBox.left; top = startBox.top + dyH2 / 2; break;
+            case 's': left = startBox.left + dxW2 / 2; top = startBox.top; break;
+            case 'ne': left = startBox.left; top = startBox.top + dyH2; break;
+            case 'n': left = startBox.left + dxW2 / 2; top = startBox.top + dyH2; break;
+            case 'w': left = startBox.left + dxW2; top = startBox.top + dyH2 / 2; break;
+            case 'sw': left = startBox.left + dxW2; top = startBox.top; break;
+            case 'nw': default: left = startBox.left + dxW2; top = startBox.top + dyH2; break;
+          }
+        }
 
         el.style.left = `${left}px`;
         el.style.top = `${top}px`;
-        el.style.width = `${width}px`;
-        el.style.height = `${height}px`;
+        el.style.width = `${Math.round(width)}px`;
+        el.style.height = `${Math.round(height)}px`;
       }
       ev.preventDefault();
       ev.stopPropagation();

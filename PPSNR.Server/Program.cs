@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Authentication;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using PPSNR.Server.Components;
@@ -76,7 +77,7 @@ builder.Services
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
             SslOptions = new System.Net.Security.SslClientAuthenticationOptions
             {
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
             },
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             ConnectTimeout = TimeSpan.FromSeconds(15)
@@ -85,14 +86,13 @@ builder.Services
         {
             Timeout = TimeSpan.FromSeconds(60),
             DefaultRequestVersion = HttpVersion.Version11,
-            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
         };
 
         // Correlation cookie must allow cross-site in external login roundtrip
         options.CorrelationCookie.SameSite = SameSiteMode.None;
         options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
     });
-
 
 var connectionString = builder.Configuration.GetConnectionString
                            ("DefaultConnection")
@@ -137,6 +137,14 @@ else
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
+
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                       ForwardedHeaders.XForwardedProto |
+                       ForwardedHeaders.XForwardedHost,
+    KnownProxies = { IPAddress.Parse("192.168.178.21") },
+});
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 // Allow disabling HTTPS redirection in tests (TestServer doesn't support HTTPS)

@@ -4,11 +4,14 @@
 @rendermode InteractiveServer
 @using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
+@using Microsoft.EntityFrameworkCore
 @inject ApplicationDbContext Db
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider Auth
 @inject IJSRuntime JS
 @inject Services.ImagesCacheService ImagesCache
+@inject Services.LayoutService LayoutSvc
 
 @* Styles moved to app.scss *@
 
@@ -42,13 +45,14 @@ else
     </script>
     <div class="hud">
         <b>@pair?.Name</b> — Drag images to reposition@(editProfile == SlotProfile.Partner ? " (Partner)" : string.Empty). Changes auto-save.
+        <button class="btn btn-sm btn-outline-light ms-2" @onclick="ResetToDefaultsAsync">Reset positions</button>
     </div>
     <div id="canvas" data-pair-id="@pairId">
         @foreach (var l in layouts)
         {
-            @foreach (var s in slots.Where(s => s.LayoutId == l.Id))
+            @foreach (var s in slots.Where(x => x.LayoutId == l.Id))
             {
-                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id" data-layout-id="@l.Id" data-z-index="@s.ZIndex" data-visible="@s.Visible" data-image-url="@s.ImageUrl" data-slot-type="@s.SlotType.ToString()" data-index="@s.Index">
+                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id.ToString()" data-layout-id="@l.Id.ToString()" data-z-index="@GetZIndex(s).ToString()" data-visible="@GetVisibleAttr(s)" data-image-url="@GetImageSrc(s)" data-index="@s.Index.ToString()">
                     <img src="@GetImageSrc(s)" draggable="false" alt="slot" />
                     <span class="resizer nw" data-dir="nw"></span>
                     <span class="resizer n" data-dir="n"></span>
@@ -72,9 +76,13 @@ else
     private StreamerPair? pair;
     private List<Layout>? layouts;
     private List<Slot> slots = new();
+    private Dictionary<Guid, SlotPlacement> placements = new();
     private HubConnection? hub;
     private const string TransparentPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAoMBgVqvJi8AAAAASUVORK5CYII=";
     private SlotProfile editProfile;
+    private bool _jsReady; // set after first interactive render completes
+    private bool _pendingClearInlineGeometry; // request to run JS clear when next render is ready
+    private bool _disposed; // component is being disposed (circuit disconnect/navigation)
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,10 +118,17 @@ else
 
         layouts = Db.Layouts.Where(l => l.PairId == pairId).ToList();
         var layoutIds = layouts.Select(l => l.Id).ToList();
-        // Load only relevant profile slots for the selected editor mode
-        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId) && s.Profile == editProfile)
+        // Show all slots for both profiles so editors can see the counterpart as well
+        // Positions are rendered using the editor's profile placement for every slot (owner or partner)
+        slots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId))
                         .OrderBy(s => s.ZIndex)
                         .ToList();
+
+        // Load placements for the current editor profile across all these slots
+        var slotIds = slots.Select(s => s.Id).ToList();
+        placements = Db.SlotPlacements
+            .Where(p => slotIds.Contains(p.SlotId) && p.Profile == editProfile)
+            .ToDictionary(p => p.SlotId, p => p);
 
         // Normalize any legacy or external ImageUrl values to cached /resources paths so images render
         await NormalizeSlotImagesAsync(slots);
@@ -125,6 +140,7 @@ else
             try
             {
                 Guid id;
+                int? profile = null;
                 float? x = null;
                 float? y = null;
                 int? z = null;
@@ -133,6 +149,8 @@ else
                 bool imgPresent = false;
                 string? add = null;
                 bool addPresent = false;
+                int? width = null;
+                int? height = null;
 
                 // Case 1: already a JsonElement
                 if (payload is System.Text.Json.JsonElement el)
@@ -145,6 +163,9 @@ else
                     if (TryGetPropertyCI(el, "Visible", out var vProp)) vis = vProp.GetBoolean();
                     if (TryGetPropertyCI(el, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
                     if (TryGetPropertyCI(el, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
+                    if (TryGetPropertyCI(el, "Width", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number) width = (int)wProp.GetDouble();
+                    if (TryGetPropertyCI(el, "Height", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number) height = (int)hProp.GetDouble();
+                    if (TryGetPropertyCI(el, "Profile", out var pr)) profile = pr.GetInt32();
                 }
                 // Case 2: dictionary (sometimes SignalR transports as dict)
                 else if (payload is IDictionary<string, object> dict)
@@ -156,6 +177,9 @@ else
                     if (TryGetValueCI(dict, "Visible", out var vObj) && bool.TryParse(vObj?.ToString(), out var vv)) vis = vv;
                     if (TryGetValueCI(dict, "ImageUrl", out var iObj)) { imgPresent = true; img = iObj == null ? null : iObj.ToString(); }
                     if (TryGetValueCI(dict, "AdditionalProperties", out var aObj)) { addPresent = true; add = aObj == null ? null : aObj.ToString(); }
+                    if (TryGetValueCI(dict, "Width", out var wObj) && int.TryParse(wObj?.ToString(), out var wv)) width = wv;
+                    if (TryGetValueCI(dict, "Height", out var hObj) && int.TryParse(hObj?.ToString(), out var hv)) height = hv;
+                    if (TryGetValueCI(dict, "Profile", out var pObj) && int.TryParse(pObj?.ToString(), out var pv)) profile = pv;
                 }
                 else
                 {
@@ -169,15 +193,27 @@ else
                     if (TryGetPropertyCI(json.RootElement, "Visible", out var vProp)) vis = vProp.GetBoolean();
                     if (TryGetPropertyCI(json.RootElement, "ImageUrl", out var imgProp)) { imgPresent = true; img = imgProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : imgProp.GetString(); }
                     if (TryGetPropertyCI(json.RootElement, "AdditionalProperties", out var addProp)) { addPresent = true; add = addProp.ValueKind == System.Text.Json.JsonValueKind.Null ? null : addProp.GetString(); }
+                    if (TryGetPropertyCI(json.RootElement, "Width", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number) width = (int)wProp.GetDouble();
+                    if (TryGetPropertyCI(json.RootElement, "Height", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number) height = (int)hProp.GetDouble();
+                    if (TryGetPropertyCI(json.RootElement, "Profile", out var pr)) profile = pr.GetInt32();
                 }
 
                 var slot = slots.FirstOrDefault(s => s.Id == id);
                 if (slot != null)
                 {
-                    if (x.HasValue) slot.X = x.Value;
-                    if (y.HasValue) slot.Y = y.Value;
-                    if (z.HasValue) slot.ZIndex = z.Value;
-                    if (vis.HasValue) slot.Visible = vis.Value;
+                    // Apply placement changes only if the event targets the current editor profile
+                    if (profile != null && (int)editProfile == profile)
+                    {
+                        if (placements.TryGetValue(slot.Id, out var pl))
+                        {
+                            if (x.HasValue) pl.X = x.Value;
+                            if (y.HasValue) pl.Y = y.Value;
+                            if (z.HasValue) pl.ZIndex = z.Value;
+                            if (vis.HasValue) pl.Visible = vis.Value;
+                            if (width.HasValue) pl.Width = width.Value;
+                            if (height.HasValue) pl.Height = height.Value;
+                        }
+                    }
                     if (imgPresent)
                     {
                         // Update ImageUrl when it's explicitly present (including null)
@@ -195,6 +231,22 @@ else
                 // Ignore malformed events
             }
         });
+        // React to bulk reset events (no payload). Reload placements from DB and re-render.
+        hub.On("PlacementsReset", () =>
+        {
+            try
+            {
+                if (_disposed) return;
+                InvokeAsync(async () =>
+                {
+                    await ReloadPlacementsForCurrentProfileAsync();
+                    // Defer JS call to OnAfterRenderAsync to avoid JS during disconnect/prerender
+                    _pendingClearInlineGeometry = true;
+                    StateHasChanged();
+                });
+            }
+            catch { /* ignore */ }
+        });
         await hub.StartAsync();
         await hub.SendAsync("SubscribeToPair", pairId.ToString());
     }
@@ -204,13 +256,67 @@ else
         if (firstRender && authorized)
         {
             var apiBase = editProfile == SlotProfile.Partner ? $"/api/partner/{token}" : "/api";
-            await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
+            try
+            {
+                await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
+                _jsReady = true;
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException)
+            {
+                // Circuit not ready; will try again on next render
+                _jsReady = false;
+            }
+            catch (ObjectDisposedException)
+            {
+                _jsReady = false;
+            }
+        }
+
+        // After any render, if we have a pending JS clear request and JS is ready, execute it safely
+        if (_pendingClearInlineGeometry && _jsReady && !_disposed)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("PPSNR_Drag.clearInlineGeometry");
+            }
+            catch (Microsoft.JSInterop.JSDisconnectedException)
+            {
+                // Ignore; circuit disconnected
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore
+            }
+            finally
+            {
+                _pendingClearInlineGeometry = false;
+            }
         }
     }
     private string GetStyle(Slot s)
     {
-        var style = $"left:{s.X}px; top:{s.Y}px; z-index:{s.ZIndex};";
-        var (w, h) = GetSizeFromAdditional(s);
+        float x = s.X;
+        float y = s.Y;
+        int z = s.ZIndex;
+        int? widthFromPlacement = null;
+        int? heightFromPlacement = null;
+        if (placements.TryGetValue(s.Id, out var p))
+        {
+            x = p.X;
+            y = p.Y;
+            z = p.ZIndex;
+            widthFromPlacement = p.Width;
+            heightFromPlacement = p.Height;
+        }
+        var style = $"left:{x}px; top:{y}px; z-index:{z};";
+        // Prefer size from placement when available; fall back to slot additional properties
+        int? w = widthFromPlacement;
+        int? h = heightFromPlacement;
+        if (w == null && h == null)
+        {
+            var sz = GetSizeFromAdditional(s);
+            w = sz.w; h = sz.h;
+        }
         if (!string.IsNullOrEmpty(s.ImageUrl))
         {
             // If no explicit size set, provide a sensible default to avoid huge official artwork
@@ -230,7 +336,22 @@ else
         if (h != null) style += $" height:{h}px;";
         return style;
     }
-    private string GetClass(Slot s) => s.Visible ? "drag" : "drag inactive";
+    private string GetClass(Slot s)
+    {
+        var visible = GetVisible(s);
+        return visible ? "drag" : "drag inactive";
+    }
+    private bool GetVisible(Slot s)
+    {
+        if (placements.TryGetValue(s.Id, out var p)) return p.Visible;
+        return s.Visible;
+    }
+    private string GetVisibleAttr(Slot s) => GetVisible(s) ? "true" : "false";
+    private int GetZIndex(Slot s)
+    {
+        if (placements.TryGetValue(s.Id, out var p)) return p.ZIndex;
+        return s.ZIndex;
+    }
     private string GetImageSrc(Slot s) => string.IsNullOrWhiteSpace(s.ImageUrl) ? TransparentPng : s.ImageUrl!;
     // additional properties are not emitted as a data attribute to avoid large attribute values; JS reads sizes from inline style
 
@@ -268,6 +389,47 @@ else
 }
 
 @code {
+    private async Task ResetToDefaultsAsync()
+    {
+        if (!authorized || pair == null) return;
+        try
+        {
+            // Reset placements for the current editing profile
+            await LayoutSvc.ResetPlacementsToDefaultsAsync(pairId, editProfile);
+
+            // Reload placements from DB for current profile using a fresh context (avoid stale tracked entities)
+            await ReloadPlacementsForCurrentProfileAsync();
+            // Defer JS to render phase to avoid disconnected/prerender issues
+            _pendingClearInlineGeometry = true;
+            StateHasChanged();
+        }
+        catch
+        {
+            // no-op on failure; UI remains unchanged
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            _disposed = true;
+            if (hub is not null)
+            {
+                await hub.DisposeAsync();
+            }
+        }
+        catch { /* ignore */ }
+    }
+    private async Task ReloadPlacementsForCurrentProfileAsync()
+    {
+        await using var fresh = await DbFactory.CreateDbContextAsync();
+        var slotIds = slots.Select(s => s.Id).ToList();
+        placements = fresh.SlotPlacements
+            .Where(p => slotIds.Contains(p.SlotId) && p.Profile == editProfile)
+            .AsNoTracking()
+            .ToDictionary(p => p.SlotId, p => p);
+    }
     private (int? w, int? h) GetSizeFromAdditional(Slot s)
     {
         try

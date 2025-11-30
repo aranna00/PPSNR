@@ -10,6 +10,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<StreamerPair> Pairs => Set<StreamerPair>();
     public DbSet<Layout> Layouts => Set<Layout>();
     public DbSet<Slot> Slots => Set<Slot>();
+    public DbSet<SlotPlacement> SlotPlacements => Set<SlotPlacement>();
     public DbSet<PairLink> PairLinks => Set<PairLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -36,6 +37,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<Slot>(e =>
         {
             e.HasIndex(s => new { s.LayoutId, s.SlotType, s.Index, s.Profile }).IsUnique();
+        });
+
+        modelBuilder.Entity<SlotPlacement>(e =>
+        {
+            e.HasOne(sp => sp.Slot).WithMany().HasForeignKey(sp => sp.SlotId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(sp => new { sp.SlotId, sp.Profile }).IsUnique();
         });
     }
 }

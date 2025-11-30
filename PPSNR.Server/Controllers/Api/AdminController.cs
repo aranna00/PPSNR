@@ -89,17 +89,58 @@ public class AdminController : ControllerBase
         var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id };
         var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id };
         _db.Layouts.AddRange(l1, l2);
-        // Owner profile slots
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1, Profile = SlotProfile.Owner });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Owner });
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1, Profile = SlotProfile.Owner });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1, Profile = SlotProfile.Owner });
+        // Create a single set of slots per layout (profile-agnostic). Positions are sample defaults.
+        // Pokemon: 6 per layout => 12 per pair
+        var createdSlots = new List<Slot>();
+        for (var i = 0; i < 6; i++)
+        {
+            var s = new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = true, X = 50, Y = 50 + i * 75, ZIndex = 1, Profile = SlotProfile.Owner, };
+            _db.Slots.Add(s);
+            createdSlots.Add(s);
+        }
+        for (var i = 0; i < 6; i++)
+        {
+            var s = new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = true, X = 250, Y = 50 + i * 75, ZIndex = 1, Profile = SlotProfile.Partner, };
+            _db.Slots.Add(s);
+            createdSlots.Add(s);
+        }
 
-        // Partner profile slots (duplicate positions by default)
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 50, ZIndex = 1, Profile = SlotProfile.Partner });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Partner });
-        for (int i = 0; i < 6; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = false, X = 50 + i * 60, Y = 250, ZIndex = 1, Profile = SlotProfile.Partner });
-        for (int i = 0; i < 16; i++) _db.Slots.Add(new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = i < 8, X = 50 + i * 30, Y = 350, ZIndex = 1, Profile = SlotProfile.Partner });
+        // Badges: 8 per layout => 16 per pair (8 for Owner layout, 8 for Partner layout)
+        for (var i = 0; i < 8; i++)
+        {
+            var s = new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = true, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Owner };
+            _db.Slots.Add(s);
+            createdSlots.Add(s);
+        }
+        for (var i = 0; i < 8; i++)
+        {
+            var s = new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = true, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Partner };
+            _db.Slots.Add(s);
+            createdSlots.Add(s);
+        }
+
+        // Couple profile-specific placement via SlotPlacement (Owner + Partner per slot)
+        foreach (var slot in createdSlots)
+        {
+            _db.SlotPlacements.Add(new SlotPlacement
+            {
+                SlotId = slot.Id,
+                Profile = SlotProfile.Owner,
+                X = slot.X,
+                Y = slot.Y,
+                ZIndex = slot.ZIndex,
+                Visible = true,
+            });
+            _db.SlotPlacements.Add(new SlotPlacement
+            {
+                SlotId = slot.Id,
+                Profile = SlotProfile.Partner,
+                X = slot.X,
+                Y = slot.Y,
+                ZIndex = slot.ZIndex,
+                Visible = true,
+            });
+        }
         await _db.SaveChangesAsync();
         return Ok(new { pair.Id });
     }

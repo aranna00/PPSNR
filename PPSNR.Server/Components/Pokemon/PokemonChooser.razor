@@ -1,0 +1,213 @@
+﻿@using PPSNR.Server.Data.Entities
+@rendermode InteractiveServer
+
+<div class="col-md-6 mb-6">
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">@(Profile == SlotProfile.Owner ? "Owner" : "Partner") @(Slot.Index + 1)</h5>
+            @if (!string.IsNullOrEmpty(CurrentImageUrl))
+            {
+                <img src="@CurrentImageUrl" alt="Pokemon" class="img-fluid mb-2" style="max-height: 150px;" />
+            }
+
+            <div class="mb-2 position-relative">
+                <input class="form-control" placeholder="Search Pokemon by name or #number" value="@_searchText"
+                       @oninput="(e) => OnSearchInput(e.Value?.ToString())"
+                       @onfocus="() => _isOpen = true"
+                       @onblur="() => _ = OnSearchBlur()" />
+                @if (_isOpen)
+                {
+                    <div class="list-group position-absolute w-100" style="z-index: 1000; max-height: 240px; overflow:auto;">
+                        @foreach (var item in GetMatchesInternal(_searchText).Take(20))
+                        {
+                            <button type="button" class="list-group-item list-group-item-action d-flex align-items-center"
+                                    @onclick="() => _ = SelectPokemonById(item.Id)">
+                                <img src="@item.IconUrl" alt="@item.DisplayName" style="width:32px;height:32px;image-rendering: pixelated;" class="me-2" />
+                                <span class="text-nowrap">#@item.Id.ToString("000") @item.DisplayName</span>
+                            </button>
+                        }
+                        @if (!GetMatchesInternal(_searchText).Any())
+                        {
+                            <div class="list-group-item text-muted">No matches</div>
+                        }
+                    </div>
+                }
+                <div class="d-flex gap-2 mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _ = ClearPokemon()">Clear</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _isOpen = true">Open list</button>
+                </div>
+            </div>
+
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="visible-@Slot.Id" checked="@Visible" @onchange="e => OnVisibleChanged?.Invoke((bool)(e.Value ?? false))" />
+                <label class="form-check-label" for="visible-@Slot.Id">Visible</label>
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+@code {
+    [Parameter] public Slot Slot { get; set; } = default!;
+    [Parameter] public string? CurrentImageUrl { get; set; }
+
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public Action<bool>? OnVisibleChanged { get; set; }
+
+    // Active profile (Owner/Partner) in the parent context
+    [Parameter] public SlotProfile Profile { get; set; } = SlotProfile.Owner;
+
+    // Single callback for updating image URL in parent
+    [Parameter] public Func<string?, Task>? OnSetImageUrl { get; set; }
+
+    [Inject] private IHttpClientFactory HttpFactory { get; set; } = default!;
+
+    private string _searchText = string.Empty;
+    private bool _isOpen;
+
+    private static List<PokemonListItem>? _allPokemonCache;
+    private static DateTime _pokemonCacheTime;
+
+    private void OnSearchInput(string? text)
+    {
+        _searchText = text ?? string.Empty;
+        _isOpen = true;
+    }
+
+    private async Task OnSearchBlur()
+    {
+        await Task.Delay(150);
+        _isOpen = false;
+    }
+
+    private IEnumerable<(int Id, string DisplayName, string IconUrl)> GetMatchesInternal(string? query)
+    {
+        // Do NOT block the sync render thread. The list is preloaded asynchronously in OnInitializedAsync.
+        var src = _allPokemonCache ?? Enumerable.Empty<PokemonListItem>();
+        if (string.IsNullOrWhiteSpace(query)) return src.Take(50).Select(ToTuple);
+        query = query.Trim();
+        if (int.TryParse(query.TrimStart('#'), out var num))
+        {
+            return src.Where(p => p.Id == num).Select(ToTuple);
+        }
+        return src.Where(p => p.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).Select(ToTuple);
+    }
+
+    private static (int Id, string DisplayName, string IconUrl) ToTuple(PokemonListItem p)
+        => (p.Id, p.DisplayName, p.IconUrl);
+
+    private async Task EnsurePokemonListAsync()
+    {
+        if (_allPokemonCache != null && (DateTime.UtcNow - _pokemonCacheTime) < TimeSpan.FromHours(12))
+            return;
+
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            using var resp = await client.GetAsync("https://pokeapi.co/api/v2/pokemon?limit=2000");
+            resp.EnsureSuccessStatusCode();
+            using var stream = await resp.Content.ReadAsStreamAsync();
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+            var results = doc.RootElement.GetProperty("results");
+            var list = new List<PokemonListItem>(results.GetArrayLength());
+            foreach (var el in results.EnumerateArray())
+            {
+                var name = el.GetProperty("name").GetString() ?? string.Empty;
+                var url = el.GetProperty("url").GetString() ?? string.Empty;
+                var id = TryParseIdFromUrl(url);
+                if (id <= 0) continue;
+                list.Add(new PokemonListItem
+                {
+                    Id = id,
+                    Name = name,
+                    IconUrl = $"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
+                });
+            }
+            _allPokemonCache = list.OrderBy(p => p.Id).ToList();
+            _pokemonCacheTime = DateTime.UtcNow;
+        }
+        catch
+        {
+            _allPokemonCache ??= new List<PokemonListItem>();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Preload in background to keep UI responsive and avoid blocking calls from render.
+        await EnsurePokemonListAsync();
+        StateHasChanged();
+    }
+
+    private static int TryParseIdFromUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return 0;
+        var parts = url.TrimEnd('/').Split('/');
+        if (parts.Length == 0) return 0;
+        return int.TryParse(parts[^1], out var id) ? id : 0;
+    }
+
+    private async Task SelectPokemonById(int id)
+    {
+        await EnsurePokemonListAsync();
+        var item = (_allPokemonCache ?? Enumerable.Empty<PokemonListItem>()).FirstOrDefault(x => x.Id == id)
+                   ?? new PokemonListItem { Id = id, Name = string.Empty, IconUrl = $"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png" };
+
+        // Fetch official artwork
+        string? artwork = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            var resp = await client.GetAsync($"https://pokeapi.co/api/v2/pokemon/{item.Id}");
+            if (resp.IsSuccessStatusCode)
+            {
+                using var stream = await resp.Content.ReadAsStreamAsync();
+                using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+                if (doc.RootElement.TryGetProperty("sprites", out var sprites) &&
+                    sprites.TryGetProperty("other", out var other) &&
+                    other.TryGetProperty("official-artwork", out var oa) &&
+                    oa.TryGetProperty("front_default", out var front) &&
+                    front.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    artwork = front.GetString();
+                }
+            }
+        }
+        catch { }
+        artwork ??= $"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{item.Id}.png";
+
+        if (OnSetImageUrl != null)
+        {
+            await OnSetImageUrl.Invoke(artwork);
+        }
+        _searchText = $"#{item.Id:000} {item.DisplayName}";
+        _isOpen = false;
+    }
+
+    private async Task ClearPokemon()
+    {
+        if (OnSetImageUrl != null)
+        {
+            await OnSetImageUrl.Invoke(null);
+        }
+    }
+
+    private sealed class PokemonListItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string IconUrl { get; set; } = string.Empty;
+        public string DisplayName => NormalizeName(Name);
+        private static string NormalizeName(string n)
+        {
+            if (string.IsNullOrWhiteSpace(n)) return n;
+            var parts = n.Split('-', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var s = parts[i];
+                parts[i] = char.ToUpperInvariant(s[0]) + (s.Length > 1 ? s.Substring(1) : string.Empty);
+            }
+            return string.Join(' ', parts);
+        }
+    }
+}

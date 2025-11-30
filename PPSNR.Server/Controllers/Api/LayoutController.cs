@@ -68,14 +68,12 @@ public class LayoutController : ControllerBase
             return BadRequest();
         }
 
-        // Ensure we only update owner-profile slots
-        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId && s.Profile == SlotProfile.Owner);
+        // Fetch the target slot by id within the layout (any profile)
+        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId);
         if (existing == null) return NotFound();
 
-        // Update owner-profile slot: positions are owner-specific; content is shared
-        existing.X = incoming.X;
-        existing.Y = incoming.Y;
-        existing.ZIndex = incoming.ZIndex;
+        // Do NOT change X/Y/ZIndex here — those are treated as immutable defaults.
+        // Only update shared content fields on the Slot row.
         existing.Visible = incoming.Visible;                 // shared
         existing.ImageUrl = incoming.ImageUrl;               // shared
         existing.AdditionalProperties = incoming.AdditionalProperties; // shared
@@ -97,10 +95,41 @@ public class LayoutController : ControllerBase
         }
 
         // Broadcast to viewers of this pair (both affected slots)
-        await _layoutService.UpdateSlotAsync(pairId, existing);
+        // Mark this change as coming from the Owner profile so placements update accordingly
+        var ownerGeom = new Slot
+        {
+            Id = existing.Id,
+            LayoutId = existing.LayoutId,
+            SlotType = existing.SlotType,
+            Index = existing.Index,
+            Profile = SlotProfile.Owner,
+            ImageUrl = existing.ImageUrl,
+            AdditionalProperties = existing.AdditionalProperties,
+            // Geometry comes from the incoming payload (editor changes)
+            X = incoming.X,
+            Y = incoming.Y,
+            ZIndex = incoming.ZIndex,
+            Visible = incoming.Visible,
+        };
+        await _layoutService.UpdateSlotAsync(pairId, ownerGeom);
         if (partnerCounterpart != null)
         {
-            await _layoutService.UpdateSlotAsync(pairId, partnerCounterpart);
+            // Also broadcast/update placement for the partner counterpart using the same geometry for the Owner profile
+            var partnerGeom = new Slot
+            {
+                Id = partnerCounterpart.Id,
+                LayoutId = partnerCounterpart.LayoutId,
+                SlotType = partnerCounterpart.SlotType,
+                Index = partnerCounterpart.Index,
+                Profile = SlotProfile.Owner,
+                ImageUrl = partnerCounterpart.ImageUrl,
+                AdditionalProperties = partnerCounterpart.AdditionalProperties,
+                X = incoming.X,
+                Y = incoming.Y,
+                ZIndex = incoming.ZIndex,
+                Visible = incoming.Visible,
+            };
+            await _layoutService.UpdateSlotAsync(pairId, partnerGeom);
         }
 
          // Return a DTO to avoid potential JSON cycles on EF navigation properties
@@ -145,14 +174,12 @@ public class LayoutController : ControllerBase
         var layout = await _db.Layouts.AsNoTracking().FirstOrDefaultAsync(l => l.Id == layoutId && l.PairId == pairId);
         if (layout == null) return NotFound();
 
-        // Ensure we only update partner-profile slots
-        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId && s.Profile == SlotProfile.Partner);
+        // Fetch the target slot by id within the layout (any profile)
+        var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slotId && s.LayoutId == layoutId);
         if (existing == null) return NotFound();
 
-        // Apply incoming values (positions are partner-specific; content is shared)
-        existing.X = incoming.X;
-        existing.Y = incoming.Y;
-        existing.ZIndex = incoming.ZIndex;
+        // Do NOT change X/Y/ZIndex here — those are treated as immutable defaults.
+        // Only update shared content fields on the Slot row.
         existing.Visible = incoming.Visible;                 // shared
         existing.ImageUrl = incoming.ImageUrl;               // shared
         existing.AdditionalProperties = incoming.AdditionalProperties; // shared
@@ -173,10 +200,40 @@ public class LayoutController : ControllerBase
         }
 
         // Broadcast to viewers of this pair (both affected slots)
-        await _layoutService.UpdateSlotAsync(pairId, existing);
+        // Mark this change as coming from the Partner profile so placements update accordingly
+        var partnerGeom = new Slot
+        {
+            Id = existing.Id,
+            LayoutId = existing.LayoutId,
+            SlotType = existing.SlotType,
+            Index = existing.Index,
+            Profile = SlotProfile.Partner,
+            ImageUrl = existing.ImageUrl,
+            AdditionalProperties = existing.AdditionalProperties,
+            // Geometry comes from the incoming payload (editor changes)
+            X = incoming.X,
+            Y = incoming.Y,
+            ZIndex = incoming.ZIndex,
+            Visible = incoming.Visible,
+        };
+        await _layoutService.UpdateSlotAsync(pairId, partnerGeom);
         if (ownerCounterpart != null)
         {
-            await _layoutService.UpdateSlotAsync(pairId, ownerCounterpart);
+            var ownerGeomFromPartner = new Slot
+            {
+                Id = ownerCounterpart.Id,
+                LayoutId = ownerCounterpart.LayoutId,
+                SlotType = ownerCounterpart.SlotType,
+                Index = ownerCounterpart.Index,
+                Profile = SlotProfile.Partner,
+                ImageUrl = ownerCounterpart.ImageUrl,
+                AdditionalProperties = ownerCounterpart.AdditionalProperties,
+                X = incoming.X,
+                Y = incoming.Y,
+                ZIndex = incoming.ZIndex,
+                Visible = incoming.Visible,
+            };
+            await _layoutService.UpdateSlotAsync(pairId, ownerGeomFromPartner);
         }
 
         return Ok(new
