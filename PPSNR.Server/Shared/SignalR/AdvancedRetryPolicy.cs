@@ -13,23 +13,7 @@ namespace PPSNR.Server.Shared.SignalR;
 /// </summary>
 public sealed class AdvancedRetryPolicy : IRetryPolicy
 {
-    public sealed class Options
-    {
-        public TimeSpan InitialBackoff { get; init; } = TimeSpan.FromMilliseconds(500);
-        public TimeSpan MaxBackoff { get; init; } = TimeSpan.FromSeconds(30);
-        public double Multiplier { get; init; } = 2.0; // exponential factor
-        public double JitterRatio { get; init; } = 0.2; // +/-20%
-
-        // Circuit breaker
-        public int CircuitBreakerThreshold { get; init; } = 6; // failures
-        public TimeSpan CircuitBreakerWindow { get; init; } = TimeSpan.FromSeconds(30);
-        public TimeSpan CircuitBreakerCooldown { get; init; } = TimeSpan.FromSeconds(60);
-
-        // Overall retry cap (null for unlimited; circuit breaker still applies)
-        public int? MaxRetryCount { get; init; }
-    }
-
-    private readonly Options _opt;
+    private readonly RetryOptions _opt;
 
     // failure timestamps within window
     private readonly LinkedList<DateTimeOffset> _failures = new();
@@ -39,11 +23,11 @@ public sealed class AdvancedRetryPolicy : IRetryPolicy
     // random per instance
     private readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 397) ^ Guid.NewGuid().GetHashCode()));
 
-    public AdvancedRetryPolicy() : this(new Options()) { }
+    public AdvancedRetryPolicy() : this(new RetryOptions()) { }
 
-    public AdvancedRetryPolicy(Options options)
+    public AdvancedRetryPolicy(RetryOptions retryOptions)
     {
-        _opt = options ?? new Options();
+        _opt = retryOptions ?? new RetryOptions();
     }
 
     public TimeSpan? NextRetryDelay(RetryContext retryContext)
