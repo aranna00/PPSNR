@@ -19,13 +19,13 @@ services:
       # Provide TWITCH values via .env (or the host env); no Docker secrets required
       - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
       - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}
-      # Connection string: prefer env var (from .env)
-      - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection:-}
+      # Connection string to Postgres (override in .env for secrets)
+      - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection:-Host=postgres;Port=5432;Database=ppsnr;Username=ppsnr;Password=ppsnr}
       - DisableHttpsRedirection=${DisableHttpsRedirection:-true}
     ports:
       - "8080:8080"
     volumes:
-      # Persist SQLite DB and runtime-generated files under /data
+      # Optional: a writable directory if the app generates files (not used for database anymore)
       - ppsnr-data:/data
       - ./PPSNR.Server/appsettings.Production.json:/app/appsettings.Production.json:ro
     # Note: Docker secrets (Swarm) removed. Use .env or host env vars instead.
@@ -35,8 +35,23 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=ppsnr
+      - POSTGRES_USER=ppsnr
+      - POSTGRES_PASSWORD=ppsnr
+    ports:
+      - "5432:5432"
+    volumes:
+      - ppsnr-pgdata:/var/lib/postgresql/data
 
 
 volumes:
   ppsnr-data:
+    driver: local
+  ppsnr-pgdata:
     driver: local

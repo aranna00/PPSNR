@@ -22,9 +22,10 @@ load_secret_if_exists "twitch_client_id" "TWITCH_CLIENT_ID"
 load_secret_if_exists "twitch_client_secret" "TWITCH_CLIENT_SECRET"
 load_secret_if_exists "db_connection" "ConnectionStrings__DefaultConnection"
 
-# If ConnectionStrings__DefaultConnection is not set, fall back to a file-based DB under /data
+# If ConnectionStrings__DefaultConnection is not set, default to a local Postgres service
 if [ -z "${ConnectionStrings__DefaultConnection:-}" ]; then
-  export ConnectionStrings__DefaultConnection="Data Source=/data/ppsnr.db"
+  # Default matches the docker-compose postgres service
+  export ConnectionStrings__DefaultConnection="Host=postgres;Port=5432;Database=ppsnr;Username=ppsnr;Password=ppsnr"
 fi
 
 # Allow disabling HTTPS redirection behind a reverse-proxy via env var (recommended to set in deploy)

@@ -3,6 +3,7 @@
     <File Path=".env" />
     <File Path=".gitignore" />
     <File Path="compose.yaml" />
+    <File Path="docker-compose.yml" />
   </Folder>
   <Project Path="PPSNR.Server/PPSNR.Server.csproj" />
   <Project Path="PPSNR.Tests/PPSNR.Tests.csproj" />

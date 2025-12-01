@@ -13,6 +13,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -104,15 +105,66 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 options.DefaultChallengeScheme = "Test";
             }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", options => { });
 
-            // Replace EF DbContextFactory/ApplicationDbContext with Sqlite in-memory
-            var descriptorFactory = services.FirstOrDefault(d => d.ServiceType == typeof(IDbContextFactory<ApplicationDbContext>));
-            if (descriptorFactory != null) services.Remove(descriptorFactory);
-            var descriptorCtx = services.FirstOrDefault(d => d.ServiceType == typeof(ApplicationDbContext));
-            if (descriptorCtx != null) services.Remove(descriptorCtx);
+            // Replace EF registrations with Sqlite in-memory, isolating provider services
+            // Remove existing registrations for the context and its options
+            var removeTypes = new[]
+            {
+                typeof(IDbContextFactory<ApplicationDbContext>),
+                typeof(ApplicationDbContext),
+                typeof(DbContextOptions<ApplicationDbContext>)
+            };
+            foreach (var t in removeTypes)
+            {
+                while (true)
+                {
+                    var desc = services.FirstOrDefault(d => d.ServiceType == t);
+                    if (desc == null) break;
+                    services.Remove(desc);
+                }
+            }
+
+            // Also remove any EF options configurations targeting ApplicationDbContext
+            bool removed;
+            do
+            {
+                removed = false;
+                var toRemove = services.FirstOrDefault(d =>
+                {
+                    var st = d.ServiceType;
+                    if (st == typeof(DbContextOptions<ApplicationDbContext>)) return true;
+                    if (!st.IsGenericType) return false;
+                    var def = st.GetGenericTypeDefinition();
+                    var args = st.GetGenericArguments();
+                    if (args.Any(a => a == typeof(ApplicationDbContext))) return true;
+                    if (def == typeof(IOptions<>))
+                    {
+                        var arg = args[0];
+                        if (arg.IsGenericType)
+                        {
+                            var argDef = arg.GetGenericTypeDefinition();
+                            var argArgs = arg.GetGenericArguments();
+                            if (argArgs.Any(a => a == typeof(ApplicationDbContext))) return true;
+                            if (argDef.Name.Contains("DbContextFactoryOptions") && argArgs.Any(a => a == typeof(ApplicationDbContext))) return true;
+                        }
+                    }
+                    return false;
+                });
+                if (toRemove != null)
+                {
+                    services.Remove(toRemove);
+                    removed = true;
+                }
+            } while (removed);
+
+            // Build an isolated provider for Sqlite so we don't register two EF providers in root
+            var efServices = new ServiceCollection();
+            efServices.AddEntityFrameworkSqlite();
+            var sqliteProvider = efServices.BuildServiceProvider();
 
             services.AddDbContextFactory<ApplicationDbContext>(options =>
             {
-                options.UseSqlite(_connection);
+                options.UseSqlite(_connection)
+                       .UseInternalServiceProvider(sqliteProvider);
             });
             services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContext());
 

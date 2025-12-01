@@ -4,13 +4,13 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
 using PPSNR.Server.Components;
 using PPSNR.Server.Components.Account;
 using PPSNR.Server.Data;
 using PPSNR.Server.Services;
 using PPSNR.Server.Hubs;
 using Microsoft.AspNetCore.Hosting.Server;
+using IPNetwork = System.Net.IPNetwork;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -130,7 +130,7 @@ var connectionString = builder.Configuration.GetConnectionString
 // Avoid mixing AddDbContext and AddDbContextFactory for the same context, which
 // causes: "Cannot resolve scoped service IEnumerable<IDbContextOptionsConfiguration<ApplicationDbContext>> from root provider".
 builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
-    options.UseSqlite(connectionString));
+    options.UseNpgsql(connectionString));
 
 // Expose a scoped ApplicationDbContext that resolves via the factory.
 builder.Services.AddScoped<ApplicationDbContext>(sp =>
@@ -166,8 +166,8 @@ else
     app.UseHsts();
 }
 
-// Ensure the SQLite database file and its directory exist and apply migrations at startup.
-// This will create the database if it doesn't exist and keep schema up to date.
+// Ensure the PostgreSQL database schema is applied at startup (migrations).
+// This will create the schema if it doesn't exist and keep it up to date.
 using (var scope = app.Services.CreateScope())
 {
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
@@ -184,68 +184,18 @@ using (var scope = app.Services.CreateScope())
             goto AfterDbInit;
         }
 
-        var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-        var connStr = cfg.GetConnectionString("DefaultConnection");
-        if (!string.IsNullOrWhiteSpace(connStr))
-        {
-            // Parse Data Source and ensure its directory exists (for file-based SQLite)
-            var csb = new SqliteConnectionStringBuilder(connStr);
-            var dataSource = csb.DataSource;
-            if (!string.IsNullOrWhiteSpace(dataSource))
-            {
-                var dir = Path.GetDirectoryName(dataSource);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-            }
-        }
-
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        // Detect the ACTUAL connection used by the context (tests replace it with in-memory Sqlite)
-        var actualConn = db.Database.GetDbConnection() as SqliteConnection;
-        var isMemory = actualConn != null &&
-                       (
-                           string.Equals(actualConn.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
-                           || actualConn.ConnectionString?.Contains("Mode=Memory", StringComparison.OrdinalIgnoreCase) == true
-                       );
-
-        if (isMemory)
+        // For PostgreSQL (and most relational providers), apply migrations if available.
+        try
         {
-            // In-memory schema must be created with EnsureCreated and cannot use Migrate
-            db.Database.EnsureCreated();
+            db.Database.Migrate();
         }
-        else
+        catch (Exception migrateEx)
         {
-            // For file-based SQLite, decide between EnsureCreated (fresh DB) and Migrate (existing DB with history)
-            bool hasHistory;
-            try
-            {
-                var conn = db.Database.GetDbConnection();
-                if (conn.State != System.Data.ConnectionState.Open)
-                {
-                    await conn.OpenAsync();
-                }
-
-                await using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory' LIMIT 1;";
-                var result = await cmd.ExecuteScalarAsync();
-                hasHistory = result != null && result != DBNull.Value;
-            }
-            catch
-            {
-                // If inspection fails, fall back to Migrate which will create DB file
-                hasHistory = true;
-            }
-
-            if (hasHistory)
-            {
-                db.Database.Migrate();
-            }
-            else
-            {
-                db.Database.EnsureCreated();
-            }
+            // If provider-specific migrations are incompatible (e.g., legacy Sqlite types),
+            // fall back to EnsureCreated so fresh databases can be created.
+            logger.LogWarning(migrateEx, "Migrate() failed; falling back to EnsureCreated(). Consider regenerating migrations for PostgreSQL.");
+            db.Database.EnsureCreated();
         }
     AfterDbInit: { }
     }
@@ -256,13 +206,21 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+// Always trust reverse-proxy headers from any number of proxies.
+// This removes the need for configuration and avoids "Unknown proxy" issues.
+var fwdOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor |
                        ForwardedHeaders.XForwardedProto |
                        ForwardedHeaders.XForwardedHost,
-    KnownProxies = { IPAddress.Parse("192.168.178.21") },
-});
+    RequireHeaderSymmetry = false,
+    ForwardLimit = null
+};
+// Trust all proxies and networks by clearing the allow-lists
+fwdOptions.KnownIPNetworks.Clear();
+fwdOptions.KnownProxies.Clear();
+
+app.UseForwardedHeaders(fwdOptions);
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 // Allow disabling HTTPS redirection in tests (TestServer doesn't support HTTPS)

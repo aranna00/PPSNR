@@ -22,8 +22,8 @@ WORKDIR /app
 COPY --from=publish /app/publish .
 
 # Copy entrypoint that reads Docker secrets into environment variables
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+# Set execute permissions at copy time to avoid needing chmod under non-root USER
+COPY --chmod=0755 PPSNR.Server/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 # Use entrypoint wrapper so secrets (mounted at /run/secrets/*) are exported as env vars
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

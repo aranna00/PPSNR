@@ -5,4 +5,5 @@ riderModule.iml
 /_ReSharper.Caches/
 PPSNR.Server/appsettings.Development.json
 .env
-**/.vs
+**/.vs/*
+.idea/.idea.PPSNR/Docker/
