@@ -37,8 +37,8 @@ public class TwitchLoginPersistenceTests
         var meBefore = await _client.GetAsync("/auth/me");
         meBefore.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        // Trigger login (fake Twitch handler signs in using DefaultSignInScheme and redirects to /)
-        var login = await _client.GetAsync("/auth/login?returnUrl=/");
+        // Trigger login via explicit external endpoint (fake Twitch handler signs in and redirects to /)
+        var login = await _client.GetAsync("/auth/external/Twitch?returnUrl=/");
         login.StatusCode.Should().Be(HttpStatusCode.Redirect);
         login.Headers.Location!.ToString().Should().Be("/");
 
@@ -56,8 +56,8 @@ public class TwitchLoginPersistenceTests
         var first = await _client.GetAsync("/api/admin/pairs");
         first.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        // Perform login
-        var login = await _client.GetAsync("/auth/login?returnUrl=/");
+        // Perform login via explicit external endpoint
+        var login = await _client.GetAsync("/auth/external/Twitch?returnUrl=/");
         login.StatusCode.Should().Be(HttpStatusCode.Redirect);
 
         // Now access protected endpoint again -> 200 OK (no re-challenge)

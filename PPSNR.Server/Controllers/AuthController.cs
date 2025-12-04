@@ -9,22 +9,26 @@ namespace PPSNR.Server.Controllers;
 public class AuthController : ControllerBase
 {
     [HttpGet("login")]
-    public async Task<IActionResult> Login([FromQuery] string? returnUrl = null)
+    public IActionResult Login([FromQuery] string? returnUrl = null)
     {
+        // Always redirect to local Identity login UI; from there users can pick external providers (e.g., Twitch)
         var targetUrl = string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl;
-
-        // If Twitch scheme is registered, challenge it to perform external login
-        var schemes = HttpContext.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
-        var twitchScheme = await schemes.GetSchemeAsync("Twitch");
-        if (twitchScheme != null)
-        {
-            var props = new AuthenticationProperties { RedirectUri = targetUrl };
-            return Challenge(props, "Twitch");
-        }
-
-        // Otherwise redirect to local login UI
         var loginUi = $"/Account/Login?ReturnUrl={Uri.EscapeDataString(targetUrl)}";
         return Redirect(loginUi);
+    }
+
+    [HttpGet("external/{provider}")]
+    public async Task<IActionResult> ExternalLogin(string provider, [FromQuery] string? returnUrl = null)
+    {
+        var targetUrl = string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl;
+        var schemes = HttpContext.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        var scheme = await schemes.GetSchemeAsync(provider);
+        if (scheme == null)
+        {
+            return BadRequest(new { error = $"Unknown external provider: {provider}" });
+        }
+        var props = new AuthenticationProperties { RedirectUri = targetUrl };
+        return Challenge(props, provider);
     }
 
     [HttpPost("logout")]
