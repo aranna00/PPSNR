@@ -7,3 +7,4 @@ PPSNR.Server/appsettings.Development.json
 .env
 **/.vs/*
 .idea/.idea.PPSNR/Docker/
+.junie

@@ -14,11 +14,17 @@ public class LayoutController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
     private readonly LayoutService _layoutService;
+    private readonly IEmailService _emailService;
+    private readonly IInviteEmailTemplate _inviteTemplate;
+    private readonly IConfiguration _config;
 
-    public LayoutController(ApplicationDbContext db, LayoutService layoutService)
+    public LayoutController(ApplicationDbContext db, LayoutService layoutService, IEmailService emailService, IInviteEmailTemplate inviteTemplate, IConfiguration config)
     {
         _db = db;
         _layoutService = layoutService;
+        _emailService = emailService;
+        _inviteTemplate = inviteTemplate;
+        _config = config;
     }
 
     [HttpPost("pairs/{pairId:guid}/links")]
@@ -30,6 +36,55 @@ public class LayoutController : ControllerBase
         if (pair == null) return NotFound();
         var link = await _layoutService.CreateOrRotatePairLinkAsync(pairId);
         return Ok(new { link.ViewToken, link.EditToken, ownerViewToken = link.OwnerViewToken, partnerEditToken = link.PartnerEditToken });
+    }
+
+    public sealed class InviteRequest
+    {
+        public string? Email { get; set; }
+    }
+
+    [HttpPost("pairs/{pairId:guid}/invite")]
+    [AllowAnonymous]
+    [IgnoreAntiforgeryToken]
+    public async Task<IActionResult> InvitePartner(Guid pairId, [FromBody] InviteRequest req, [FromServices] Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        try
+        {
+            await antiforgery.ValidateRequestAsync(HttpContext);
+        }
+        catch
+        {
+            return BadRequest();
+        }
+
+        if (req == null || string.IsNullOrWhiteSpace(req.Email)) return BadRequest();
+
+        var pair = await _db.Pairs.FirstOrDefaultAsync(p => p.Id == pairId);
+        if (pair == null) return NotFound();
+        if (!string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal)) return Forbid();
+
+        var link = await _db.PairLinks.FirstOrDefaultAsync(l => l.PairId == pairId);
+        if (link == null)
+        {
+            link = await _layoutService.CreateOrRotatePairLinkAsync(pairId);
+        }
+
+        var baseUrl = _config["PUBLIC_BASE_URL"] ?? _config["App:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            var scheme = Request.Scheme;
+            var host = Request.Host.Value;
+            baseUrl = $"{scheme}://{host}";
+        }
+        var acceptUrl = $"{baseUrl}/invite/accept/{pairId}/{link.PartnerEditToken}";
+
+        var ownerName = User.Identity?.Name ?? "Owner";
+        var (subject, html, text) = _inviteTemplate.Build(ownerName, pair.Name, acceptUrl);
+        await _emailService.SendAsync(req.Email!, subject, html, text);
+        return Ok(new { invited = req.Email });
     }
 
     // Endpoint to issue and return an antiforgery request token and set the antiforgery cookie in the browser.

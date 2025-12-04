@@ -51,6 +51,10 @@ builder.Services.AddScoped<AuthService>();
 // Register IHttpClientFactory for services that depend on it (e.g., ImagesCacheService)
 builder.Services.AddHttpClient();
 
+// Email + Invite services
+builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
+builder.Services.AddSingleton<IInviteEmailTemplate, DefaultInviteEmailTemplate>();
+
 // Ensure IHttpContextAccessor is available for AuthService
 builder.Services.AddHttpContextAccessor();
 
