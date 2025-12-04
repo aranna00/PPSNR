@@ -4,6 +4,7 @@ using PPSNR.Server.Data;
 using PPSNR.Server.Data.Entities;
 using PPSNR.Server.Hubs;
 using PPSNR.Shared.SignalR;
+using System.Text.Json;
 
 namespace PPSNR.Server.Services;
 
@@ -23,6 +24,24 @@ public class LayoutService
         _log = log;
         var v = _config["ENABLE_SIGNALR_LOGGING"] ?? _config["EnableSignalRLogging"]; // accept either casing
         _loggingEnabled = !string.IsNullOrEmpty(v) && (string.Equals(v, "1") || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task BroadcastToggleBordersAsync(Guid pairId, bool show, CancellationToken ct = default)
+    {
+        try
+        {
+            var envelope = new SignalRMessageEnvelope
+            {
+                Type = "ToggleBorders",
+                Data = JsonSerializer.SerializeToElement(new { show })
+            };
+            if (_loggingEnabled) _log.LogInformation("Broadcasting SignalR Message: {Type} for Pair {PairId}", envelope.Type, pairId);
+            await _hub.Clients.Group(pairId.ToString()).SendAsync("Message", envelope, ct);
+        }
+        catch (Exception ex)
+        {
+            if (_loggingEnabled) _log.LogWarning(ex, "Failed to broadcast ToggleBorders for Pair {PairId}", pairId);
+        }
     }
 
     public async Task<PairLink> CreateOrRotatePairLinkAsync(Guid pairId, CancellationToken ct = default)
