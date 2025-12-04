@@ -10,7 +10,6 @@ public class SlotUpdatedDto
     public int? ZIndex { get; set; }
     public bool? Visible { get; set; }
     public string? ImageUrl { get; set; }
-    public string? AdditionalProperties { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
 }

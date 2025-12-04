@@ -45,6 +45,7 @@ else
     <div class="hud">
         <b>@pair?.Name</b> — Drag images to reposition@(editProfile == SlotProfile.Partner ? " (Partner)" : string.Empty). Changes auto-save.
         <button class="btn btn-sm btn-outline-light ms-2" @onclick="ResetToDefaultsAsync">Reset positions</button>
+        <button class="btn btn-sm btn-warning ms-2" @onclick="ToggleBordersAsync">@(_bordersOn ? "Hide borders on OBS" : "Show borders on OBS")</button>
     </div>
     <div id="canvas" data-pair-id="@pairId">
         @foreach (var l in layouts)
@@ -52,7 +53,7 @@ else
             @foreach (var s in slots.Where(x => x.LayoutId == l.Id))
             {
                 <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id.ToString()" data-layout-id="@l.Id.ToString()" data-z-index="@GetZIndex(s).ToString()" data-visible="@GetVisibleAttr(s)" data-image-url="@GetImageSrc(s)" data-index="@s.Index.ToString()">
-                    <img src="@GetImageSrc(s)" draggable="false" alt="@(s.SlotType is SlotType.Pokemon ? "Pokemon" : "Badge")" />
+                    <img src="@GetImageSrc(s)" draggable="false" alt="@GetAltText(s)" />
                     <span class="resizer nw" data-dir="nw"></span>
                     <span class="resizer n" data-dir="n"></span>
                     <span class="resizer ne" data-dir="ne"></span>
@@ -82,6 +83,7 @@ else
     private bool _jsReady; // set after first interactive render completes
     private bool _pendingClearInlineGeometry; // request to run JS clear when next render is ready
     private bool _disposed; // component is being disposed (circuit disconnect/navigation)
+    private bool _bordersOn; // current requested borders state sent to viewers
 
     protected override async Task OnInitializedAsync()
     {
@@ -155,7 +157,6 @@ else
                     var z = dto.ZIndex;
                     var vis = dto.Visible;
                     var img = dto.ImageUrl;
-                    var add = dto.AdditionalProperties;
                     var width = dto.Width;
                     var height = dto.Height;
 
@@ -178,10 +179,8 @@ else
                         {
                             slot.ImageUrl = dto.ImageUrl;
                         }
-                        if (dto.AdditionalProperties != null)
-                        {
-                            slot.AdditionalProperties = dto.AdditionalProperties;
-                        }
+                        if (width.HasValue) slot.Width = width.Value;
+                        if (height.HasValue) slot.Height = height.Value;
                         InvokeAsync(StateHasChanged);
                     }
                 }
@@ -234,6 +233,18 @@ else
             }
         }
     }
+
+    private async Task ToggleBordersAsync()
+    {
+        _bordersOn = !_bordersOn;
+        // Broadcast to viewers via SignalR so the existing OBS browser source updates live
+        await LayoutSvc.BroadcastToggleBordersAsync(pairId, _bordersOn);
+    }
+
+    private static string GetAltText(Slot s)
+    {
+        return s.SlotType is SlotType.Pokemon ? "Pokemon" : "Badge";
+    }
     private string GetStyle(Slot s)
     {
         float x = s.X;
@@ -250,14 +261,10 @@ else
             heightFromPlacement = p.Height;
         }
         var style = $"left:{x}px; top:{y}px; z-index:{z};";
-        // Prefer size from placement when available; fall back to slot additional properties
+        // Prefer size from placement when available; fall back to slot Width/Height
         int? w = widthFromPlacement;
         int? h = heightFromPlacement;
-        if (w == null && h == null)
-        {
-            var sz = GetSizeFromAdditional(s);
-            w = sz.w; h = sz.h;
-        }
+        if (w == null && h == null) { w = s.Width; h = s.Height; }
         if (!string.IsNullOrEmpty(s.ImageUrl))
         {
             // If no explicit size set, provide a sensible default to avoid huge official artwork
@@ -294,7 +301,7 @@ else
         return s.ZIndex;
     }
     private string GetImageSrc(Slot s) => string.IsNullOrWhiteSpace(s.ImageUrl) ? TransparentPng : s.ImageUrl!;
-    // additional properties are not emitted as a data attribute to avoid large attribute values; JS reads sizes from inline style
+    // sizes are derived from placement or Slot.Width/Height; JS reads sizes from inline style
 
     private async Task NormalizeSlotImagesAsync(IEnumerable<Slot> list)
     {
@@ -371,43 +378,5 @@ else
             .AsNoTracking()
             .ToDictionary(p => p.SlotId, p => p);
     }
-    private (int? w, int? h) GetSizeFromAdditional(Slot s)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(s.AdditionalProperties)) return (null, null);
-            using var doc = System.Text.Json.JsonDocument.Parse(s.AdditionalProperties);
-            var root = doc.RootElement;
-            int? w = null, h = null;
-            if (TryGetPropertyCI(root, "w", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)wProp.GetDouble();
-                if (v > 0) w = v;
-            }
-            if (TryGetPropertyCI(root, "h", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)hProp.GetDouble();
-                if (v > 0) h = v;
-            }
-            return (w, h);
-        }
-        catch
-        {
-            return (null, null);
-        }
-    }
-    private static bool TryGetPropertyCI(System.Text.Json.JsonElement el, string name, out System.Text.Json.JsonElement prop)
-    {
-        if (el.TryGetProperty(name, out prop)) return true;
-        var camel = LowerFirst(name);
-        return el.TryGetProperty(camel, out prop);
-    }
-    private static bool TryGetValueCI(IDictionary<string, object> dict, string name, out object? value)
-    {
-        if (dict.TryGetValue(name, out value)) return true;
-        var camel = LowerFirst(name);
-        return dict.TryGetValue(camel, out value);
-    }
-    private static string LowerFirst(string s)
-        => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s.Substring(1);
+    // Removed AdditionalProperties parsing helpers; width/height are explicit now
 }

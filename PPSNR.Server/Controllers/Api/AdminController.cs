@@ -81,26 +81,50 @@ public class AdminController : ControllerBase
             return BadRequest();
         }
 
-        var pair = new StreamerPair { Name = $"Pair {DateTime.UtcNow:HHmmss}", OwnerUserId = userId };
+        var pair = new StreamerPair { Name = $"Pair {DateTime.UtcNow:HHmmss}", OwnerUserId = userId, };
         _db.Pairs.Add(pair);
-        var s1 = new Streamer { DisplayName = "Streamer A" };
-        var s2 = new Streamer { DisplayName = "Streamer B" };
+        var s1 = new Streamer { DisplayName = "Streamer A", };
+        var s2 = new Streamer { DisplayName = "Streamer B", };
         _db.Streamers.AddRange(s1, s2);
-        var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id };
-        var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id };
+        var l1 = new Layout { Name = "Layout A", PairId = pair.Id, StreamerId = s1.Id, };
+        var l2 = new Layout { Name = "Layout B", PairId = pair.Id, StreamerId = s2.Id, };
         _db.Layouts.AddRange(l1, l2);
         // Create a single set of slots per layout (profile-agnostic). Positions are sample defaults.
         // Pokemon: 6 per layout => 12 per pair
         var createdSlots = new List<Slot>();
         for (var i = 0; i < 6; i++)
         {
-            var s = new Slot { LayoutId = l1.Id, SlotType = SlotType.Pokemon, Index = i, Visible = true, X = 50, Y = 50 + i * 75, ZIndex = 1, Profile = SlotProfile.Owner, };
+            var s = new Slot
+            {
+                LayoutId = l1.Id,
+                SlotType = SlotType.Pokemon,
+                Index = i,
+                Visible = true,
+                X = 50,
+                Y = 50 + i * 75,
+                ZIndex = 1,
+                Profile = SlotProfile.Owner,
+                Width = 150,
+                Height = 150,
+            };
             _db.Slots.Add(s);
             createdSlots.Add(s);
         }
         for (var i = 0; i < 6; i++)
         {
-            var s = new Slot { LayoutId = l2.Id, SlotType = SlotType.Pokemon, Index = i, Visible = true, X = 250, Y = 50 + i * 75, ZIndex = 1, Profile = SlotProfile.Partner, };
+            var s = new Slot
+            {
+                LayoutId = l2.Id,
+                SlotType = SlotType.Pokemon,
+                Index = i,
+                Visible = true,
+                X = 250,
+                Y = 50 + i * 75,
+                ZIndex = 1,
+                Profile = SlotProfile.Partner,
+                Width = 150,
+                Height = 150,
+            };
             _db.Slots.Add(s);
             createdSlots.Add(s);
         }
@@ -108,13 +132,33 @@ public class AdminController : ControllerBase
         // Badges: 8 per layout => 16 per pair (8 for Owner layout, 8 for Partner layout)
         for (var i = 0; i < 8; i++)
         {
-            var s = new Slot { LayoutId = l1.Id, SlotType = SlotType.Badge, Index = i, Visible = true, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Owner };
+            var s = new Slot
+            {
+                LayoutId = l1.Id,
+                SlotType = SlotType.Badge,
+                Index = i,
+                Visible = true,
+                X = 50 + i * 30,
+                Y = 150,
+                ZIndex = 1,
+                Profile = SlotProfile.Owner
+            };
             _db.Slots.Add(s);
             createdSlots.Add(s);
         }
         for (var i = 0; i < 8; i++)
         {
-            var s = new Slot { LayoutId = l2.Id, SlotType = SlotType.Badge, Index = i, Visible = true, X = 50 + i * 30, Y = 150, ZIndex = 1, Profile = SlotProfile.Partner };
+            var s = new Slot
+            {
+                LayoutId = l2.Id,
+                SlotType = SlotType.Badge,
+                Index = i,
+                Visible = true,
+                X = 50 + i * 30,
+                Y = 150,
+                ZIndex = 1,
+                Profile = SlotProfile.Partner
+            };
             _db.Slots.Add(s);
             createdSlots.Add(s);
         }

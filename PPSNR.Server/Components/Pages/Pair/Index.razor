@@ -32,33 +32,33 @@
             @if (_links.TryGetValue(p.Id, out var link))
             {
                 <div>
-                    Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">/@p.Id/view/@link.OwnerViewToken</a>
+                    Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">browser source for: @p.Owner?.UserName</a>
                 </div>
                 <div>
-                    Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">/@p.Id/edit/@link.EditToken</a>
+                    Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">Edit @p.Owner?.UserName's layout</a>
                 </div>
                 <div>
-                    Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">/@p.Id/select/@link.EditToken</a>
+                    Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">Select pokemon</a>
                 </div>
                 <div>
-                    Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">/@p.Id/view/@link.ViewToken</a>
+                    Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">browser source for: @p.Partner?.UserName</a>
                 </div>
                 <div>
-                    Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">/@p.Id/partner-edit/@link.PartnerEditToken</a>
+                    Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">Edit @p.Partner?.UserName's layout</a>
                 </div>
                 <div>
-                    Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">/@p.Id/select/@link.PartnerEditToken</a>
+                    Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">Select pokemon</a>
                 </div>
                 <div style="margin-top:6px;">
-                    <button @onclick="(() => GenerateLinks(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
-                    <button style="margin-left:6px;" @onclick="(() => DeletePair(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                    <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
+                    <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
                 </div>
             }
             else
             {
                 <div style="margin-top:6px;">
-                    <button @onclick="(() => GenerateLinks(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
-                    <button style="margin-left:6px;" @onclick="(() => DeletePair(p.Id))" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                    <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
+                    <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
                 </div>
             }
         </li>

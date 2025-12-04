@@ -63,7 +63,8 @@ public class LayoutServiceTests
             existing.ZIndex = 5;
             existing.Visible = true;
             existing.ImageUrl = "/resources/test.png";
-            existing.AdditionalProperties = "{}";
+            existing.Width = 100;
+            existing.Height = 100;
             existing.SlotType = SlotType.Badge;
             existing.Index = 2;
 

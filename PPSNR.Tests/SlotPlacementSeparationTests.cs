@@ -65,7 +65,8 @@ public class SlotPlacementSeparationTests
             s.Y = 60;
             s.ZIndex = 3;
             s.Visible = true;
-            s.AdditionalProperties = "{\"w\":150,\"h\":160}";
+            s.Width = 150;
+            s.Height = 160;
             await service.UpdateSlotAsync(pairId, s);
         }
 

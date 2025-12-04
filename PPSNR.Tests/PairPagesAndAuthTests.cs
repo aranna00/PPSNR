@@ -122,7 +122,7 @@ public class PairPagesAndAuthTests
         // Owner without antiforgery -> 400
         var ownerClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = true });
         ownerClient.DefaultRequestHeaders.Add("X-Test-User", "user-1");
-        var body = JsonSerializer.Serialize(new { slot.Id, slot.LayoutId, X = 5, Y = 6, ZIndex = 2, Visible = true, slot.SlotType, slot.Index, slot.ImageUrl, slot.AdditionalProperties });
+        var body = JsonSerializer.Serialize(new { slot.Id, slot.LayoutId, X = 5, Y = 6, ZIndex = 2, Visible = true, slot.SlotType, slot.Index, slot.ImageUrl, slot.Width, slot.Height });
         var bad = await ownerClient.PostAsync($"/api/pairs/{pairId}/layouts/{layoutId}/slots/{slot.Id}", new StringContent(body, Encoding.UTF8, "application/json"));
         bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 

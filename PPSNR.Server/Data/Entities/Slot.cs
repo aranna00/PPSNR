@@ -21,9 +21,11 @@ public class Slot
 
     [Required]
     public Guid LayoutId { get; set; }
+
     public Layout? Layout { get; set; }
 
     public SlotType SlotType { get; set; }
+
     public int Index { get; set; }
 
     public SlotProfile Profile { get; set; } = SlotProfile.Owner;
@@ -32,10 +34,14 @@ public class Slot
     public string? ImageUrl { get; set; }
 
     public float X { get; set; }
+
     public float Y { get; set; }
+
     public int ZIndex { get; set; }
+
     public bool Visible { get; set; } = true;
 
-    // JSON for future flags (e.g., greyscale)
-    public string? AdditionalProperties { get; set; }
+    public int? Width { get; set; }
+
+    public int? Height { get; set; }
 }

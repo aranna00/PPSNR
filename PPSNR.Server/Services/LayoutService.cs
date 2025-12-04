@@ -85,10 +85,11 @@ public class LayoutService
         var existing = await _db.Slots.FirstOrDefaultAsync(s => s.Id == slot.Id, ct);
         if (existing == null) return null;
         // Do not alter geometry on the Slot row; treat X/Y/ZIndex as immutable defaults.
-        // Only update shared content fields (visible/image/additional/type/index).
+        // Only update shared content fields (visible/image/size/type/index).
         existing.Visible = slot.Visible;
         existing.ImageUrl = slot.ImageUrl;
-        existing.AdditionalProperties = slot.AdditionalProperties;
+        existing.Width = slot.Width;
+        existing.Height = slot.Height;
         existing.SlotType = slot.SlotType;
         existing.Index = slot.Index;
         await _db.SaveChangesAsync(ct);
@@ -96,27 +97,8 @@ public class LayoutService
         // Upsert normalized geometry into SlotPlacements (position + size per profile)
         try
         {
-            int? width = null;
-            int? height = null;
-            if (!string.IsNullOrWhiteSpace(existing.AdditionalProperties))
-            {
-                try
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(existing.AdditionalProperties);
-                    var root = doc.RootElement;
-                    if (root.TryGetProperty("w", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-                    {
-                        var wv = (int)wProp.GetDouble();
-                        if (wv > 0) width = wv;
-                    }
-                    if (root.TryGetProperty("h", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-                    {
-                        var hv = (int)hProp.GetDouble();
-                        if (hv > 0) height = hv;
-                    }
-                }
-                catch { /* ignore malformed additional json */ }
-            }
+            int? width = existing.Width;
+            int? height = existing.Height;
 
             // IMPORTANT: Use the incoming slot.Profile to decide which profile's placement
             // is being updated (editor/viewer profile), not the persisted Slot row's profile.
@@ -155,8 +137,9 @@ public class LayoutService
 
         // Broadcast to the pair group with the UPDATED geometry (from the incoming change),
         // not the immutable defaults stored on the Slot row.
-        // Derive size to include in broadcast from AdditionalProperties
-        var (bw, bh) = TryGetSizeFromAdditional(existing.AdditionalProperties);
+        // Include explicit Width/Height in broadcast
+        var bw = existing.Width;
+        var bh = existing.Height;
 
         // Build a typed DTO for the update
         var slotDto = new SlotUpdatedDto
@@ -169,7 +152,6 @@ public class LayoutService
             ZIndex = slot.ZIndex,
             Visible = slot.Visible,
             ImageUrl = existing.ImageUrl,
-            AdditionalProperties = existing.AdditionalProperties,
             Width = bw,
             Height = bh
         };
@@ -180,7 +162,7 @@ public class LayoutService
             var envelope = new SignalRMessageEnvelope
             {
                 Type = "SlotUpdated",
-                Data = System.Text.Json.JsonSerializer.SerializeToElement(slotDto)
+                Data = JsonSerializer.SerializeToElement(slotDto)
             };
 
             if (_loggingEnabled) _log.LogInformation("Broadcasting SignalR Message: {Type} for Pair {PairId}", envelope.Type, pairId);
@@ -195,31 +177,7 @@ public class LayoutService
         return existing;
     }
 
-    private static (int? w, int? h) TryGetSizeFromAdditional(string? additional)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(additional)) return (null, null);
-            using var doc = System.Text.Json.JsonDocument.Parse(additional);
-            var root = doc.RootElement;
-            int? w = null, h = null;
-            if (root.TryGetProperty("w", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)wProp.GetDouble();
-                if (v > 0) w = v;
-            }
-            if (root.TryGetProperty("h", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)hProp.GetDouble();
-                if (v > 0) h = v;
-            }
-            return (w, h);
-        }
-        catch
-        {
-            return (null, null);
-        }
-    }
+    // Removed AdditionalProperties parsing; sizes are explicit now
 
     private static void ApplyDefaultPlacementFromSlot(Slot slot, SlotPlacement placement)
     {
@@ -227,9 +185,8 @@ public class LayoutService
         placement.Y = slot.Y;
         placement.ZIndex = slot.ZIndex;
         placement.Visible = slot.Visible;
-        var (w, h) = TryGetSizeFromAdditional(slot.AdditionalProperties);
-        placement.Width = w;
-        placement.Height = h;
+        placement.Width = slot.Width;
+        placement.Height = slot.Height;
     }
 
     public async Task<int> ResetPlacementsToDefaultsAsync(Guid pairId, SlotProfile profile, CancellationToken ct = default)
@@ -268,7 +225,7 @@ public class LayoutService
                 Data = null
             };
             if (_loggingEnabled) _log.LogInformation("Broadcasting SignalR Message: PlacementsReset for Pair {PairId}", pairId);
-            await _hub.Clients.Group(pairId.ToString()).SendAsync("Message", resetEnvelope);
+            await _hub.Clients.Group(pairId.ToString()).SendAsync("Message", resetEnvelope, cancellationToken: ct);
         }
         catch (Exception ex)
         {

@@ -12,17 +12,15 @@
     html, body, #app { background: transparent; margin: 0; padding: 0; }
     #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
     .slot-img { position: absolute; image-rendering: auto; }
+    .slot-outline { outline: 2px dashed rgba(0, 150, 255, 0.8); outline-offset: -1px; }
 </style>
 
 <div id="canvas">
     @foreach (var s in _slots)
     {
-        // Render positions based on the VIEWER's profile placement (Owner or Partner)
-        // for all slots. This ensures Owner sees/edits Owner placements for both
-        // Owner and Partner Pokémon, and Partner sees/edits Partner placements.
-        if (_placements.TryGetValue((s.Id, _viewProfile), out var p) && p.Visible && !string.IsNullOrEmpty(s.ImageUrl) && s.ImageUrl[0] == '/')
+        if (_placements.TryGetValue((s.Id, _viewProfile), out var p) && (_showBorders || (p.Visible && !string.IsNullOrEmpty(s.ImageUrl) && s.ImageUrl[0] == '/')))
         {
-            <img class="slot-img"
+            <img class="@($"slot-img{(_showBorders ? " slot-outline" : string.Empty)}")"
                  src="@s.ImageUrl"
                  style="left:@(p.X)px; top:@(p.Y)px; z-index:@p.ZIndex;"
                  width="@(p.Width ?? GetWidth(s))"
@@ -44,6 +42,7 @@
     private HubConnection? _hub;
     private bool _authorized;
     private SlotProfile _viewProfile;
+    private bool _showBorders;
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,7 +121,6 @@
                         var z = dto.ZIndex;
                         var vis = dto.Visible;
                         var img = dto.ImageUrl;
-                        var add = dto.AdditionalProperties;
                         var width = dto.Width;
                         var height = dto.Height;
 
@@ -130,7 +128,8 @@
                         if (slot != null)
                         {
                             if (img != null) slot.ImageUrl = img;
-                            if (add != null) slot.AdditionalProperties = add;
+                            if (width.HasValue) slot.Width = width.Value;
+                            if (height.HasValue) slot.Height = height.Value;
                             if (profile != null)
                             {
                                 var prof = (SlotProfile)profile.Value;
@@ -140,12 +139,8 @@
                                     if (y.HasValue) placement.Y = y.Value;
                                     if (z.HasValue) placement.ZIndex = z.Value;
                                     if (vis.HasValue) placement.Visible = vis.Value;
-                                    if (add != null)
-                                    {
-                                        var (w, h) = GetSizeFromAdditional(slot);
-                                        placement.Width = w;
-                                        placement.Height = h;
-                                    }
+                                    if (width.HasValue) placement.Width = width.Value;
+                                    if (height.HasValue) placement.Height = height.Value;
                                 }
                             }
                             InvokeAsync(StateHasChanged);
@@ -158,6 +153,19 @@
                             await ReloadPlacementsAsync();
                             StateHasChanged();
                         });
+                    }
+                    else if (string.Equals(envelope.Type, "ToggleBorders", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                    {
+                        try
+                        {
+                            var root = envelope.Data.Value;
+                            if (root.TryGetProperty("show", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False)
+                            {
+                                var value = s.GetBoolean();
+                                InvokeAsync(() => { _showBorders = value; StateHasChanged(); });
+                            }
+                        }
+                        catch { /* ignore */ }
                     }
                 }
                 catch { /* ignore malformed event */ }
@@ -231,62 +239,16 @@
     }
     private static string GetSizeStyle(Slot s)
     {
-        var (w, h) = GetSizeFromAdditional(s);
+        var w = s.Width;
+        var h = s.Height;
         var style = string.Empty;
         if (w != null) style += $" width:{w}px;";
         if (h != null) style += $" height:{h}px;";
         return style;
     }
 
-    private static (int? w, int? h) GetSizeFromAdditional(Slot s)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(s.AdditionalProperties)) return (null, null);
-            using var doc = System.Text.Json.JsonDocument.Parse(s.AdditionalProperties);
-            var root = doc.RootElement;
-            int? w = null, h = null;
-            if (TryGetPropertyCI(root, "w", out var wProp) && wProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)wProp.GetDouble();
-                if (v > 0) w = v;
-            }
-            if (TryGetPropertyCI(root, "h", out var hProp) && hProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-            {
-                var v = (int)hProp.GetDouble();
-                if (v > 0) h = v;
-            }
-            return (w, h);
-        }
-        catch
-        {
-            return (null, null);
-        }
-    }
+    private static int? GetWidth(Slot s) => s.Width;
+    private static int? GetHeight(Slot s) => s.Height;
 
-    private static int? GetWidth(Slot s)
-    {
-        var (w, _) = GetSizeFromAdditional(s);
-        return w;
-    }
-    private static int? GetHeight(Slot s)
-    {
-        var (_, h) = GetSizeFromAdditional(s);
-        return h;
-    }
-
-    private static bool TryGetPropertyCI(System.Text.Json.JsonElement el, string name, out System.Text.Json.JsonElement prop)
-    {
-        if (el.TryGetProperty(name, out prop)) return true;
-        var camel = LowerFirst(name);
-        return el.TryGetProperty(camel, out prop);
-    }
-    private static bool TryGetValueCI(IDictionary<string, object> dict, string name, out object? value)
-    {
-        if (dict.TryGetValue(name, out value)) return true;
-        var camel = LowerFirst(name);
-        return dict.TryGetValue(camel, out value);
-    }
-    private static string LowerFirst(string s)
-        => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s.Substring(1);
+    // Removed legacy AdditionalProperties helpers; sizes are explicit now
 }

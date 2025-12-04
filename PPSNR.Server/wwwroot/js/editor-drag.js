@@ -336,9 +336,6 @@
     const w = Math.round(el.offsetWidth || parseFloat(el.style.width || '0') || 0);
     const h = Math.round(el.offsetHeight || parseFloat(el.style.height || '0') || 0);
 
-    // build AdditionalProperties JSON with size
-    const additional = JSON.stringify({ w, h });
-
     const url = `${apiBase}/pairs/${pairId}/layouts/${layoutId}/slots/${slotId}`;
     const payload = JSON.stringify({
       id: slotId,
@@ -349,7 +346,8 @@
       imageUrl: img,
       slotType: slotType,
       index: index,
-      additionalProperties: additional
+      width: w,
+      height: h
     });
 
     // Use antiforgery helper

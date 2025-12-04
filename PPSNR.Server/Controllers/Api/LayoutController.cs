@@ -76,7 +76,8 @@ public class LayoutController : ControllerBase
         // Only update shared content fields on the Slot row.
         existing.Visible = incoming.Visible;                 // shared
         existing.ImageUrl = incoming.ImageUrl;               // shared
-        existing.AdditionalProperties = incoming.AdditionalProperties; // shared
+        existing.Width = incoming.Width;
+        existing.Height = incoming.Height;
         existing.SlotType = incoming.SlotType;
         existing.Index = incoming.Index;
         await _db.SaveChangesAsync();
@@ -90,7 +91,8 @@ public class LayoutController : ControllerBase
         {
             partnerCounterpart.Visible = existing.Visible;
             partnerCounterpart.ImageUrl = existing.ImageUrl;
-            partnerCounterpart.AdditionalProperties = existing.AdditionalProperties;
+            partnerCounterpart.Width = existing.Width;
+            partnerCounterpart.Height = existing.Height;
             await _db.SaveChangesAsync();
         }
 
@@ -104,7 +106,8 @@ public class LayoutController : ControllerBase
             Index = existing.Index,
             Profile = SlotProfile.Owner,
             ImageUrl = existing.ImageUrl,
-            AdditionalProperties = existing.AdditionalProperties,
+            Width = existing.Width,
+            Height = existing.Height,
             // Geometry comes from the incoming payload (editor changes)
             X = incoming.X,
             Y = incoming.Y,
@@ -123,7 +126,8 @@ public class LayoutController : ControllerBase
                 Index = partnerCounterpart.Index,
                 Profile = SlotProfile.Owner,
                 ImageUrl = partnerCounterpart.ImageUrl,
-                AdditionalProperties = partnerCounterpart.AdditionalProperties,
+                Width = partnerCounterpart.Width,
+                Height = partnerCounterpart.Height,
                 X = incoming.X,
                 Y = incoming.Y,
                 ZIndex = incoming.ZIndex,
@@ -144,7 +148,8 @@ public class LayoutController : ControllerBase
              existing.ImageUrl,
              existing.SlotType,
              existing.Index,
-             existing.AdditionalProperties
+             existing.Width,
+             existing.Height
          });
      }
 
@@ -182,7 +187,8 @@ public class LayoutController : ControllerBase
         // Only update shared content fields on the Slot row.
         existing.Visible = incoming.Visible;                 // shared
         existing.ImageUrl = incoming.ImageUrl;               // shared
-        existing.AdditionalProperties = incoming.AdditionalProperties; // shared
+        existing.Width = incoming.Width;
+        existing.Height = incoming.Height;
 
         await _db.SaveChangesAsync();
 
@@ -195,7 +201,8 @@ public class LayoutController : ControllerBase
         {
             ownerCounterpart.Visible = existing.Visible;
             ownerCounterpart.ImageUrl = existing.ImageUrl;
-            ownerCounterpart.AdditionalProperties = existing.AdditionalProperties;
+            ownerCounterpart.Width = existing.Width;
+            ownerCounterpart.Height = existing.Height;
             await _db.SaveChangesAsync();
         }
 
@@ -209,7 +216,8 @@ public class LayoutController : ControllerBase
             Index = existing.Index,
             Profile = SlotProfile.Partner,
             ImageUrl = existing.ImageUrl,
-            AdditionalProperties = existing.AdditionalProperties,
+            Width = existing.Width,
+            Height = existing.Height,
             // Geometry comes from the incoming payload (editor changes)
             X = incoming.X,
             Y = incoming.Y,
@@ -227,7 +235,8 @@ public class LayoutController : ControllerBase
                 Index = ownerCounterpart.Index,
                 Profile = SlotProfile.Partner,
                 ImageUrl = ownerCounterpart.ImageUrl,
-                AdditionalProperties = ownerCounterpart.AdditionalProperties,
+                Width = ownerCounterpart.Width,
+                Height = ownerCounterpart.Height,
                 X = incoming.X,
                 Y = incoming.Y,
                 ZIndex = incoming.ZIndex,
@@ -247,7 +256,8 @@ public class LayoutController : ControllerBase
             existing.ImageUrl,
             existing.SlotType,
             existing.Index,
-            existing.AdditionalProperties
+            existing.Width,
+            existing.Height
         });
     }
  }
