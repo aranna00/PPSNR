@@ -5,6 +5,7 @@ using PPSNR.Server.Data;
 using PPSNR.Server.Data.Entities;
 using PPSNR.Server.Services;
 using System.Security.Claims;
+using PPSNR.Server.Shared;
 
 namespace PPSNR.Server.Controllers.Api;
 
