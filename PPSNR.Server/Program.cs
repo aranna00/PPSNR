@@ -10,6 +10,7 @@ using PPSNR.Server.Data;
 using PPSNR.Server.Services;
 using PPSNR.Server.Hubs;
 using Microsoft.AspNetCore.Hosting.Server;
+using PPSNR.Server.Shared;
 using IPNetwork = System.Net.IPNetwork;
 
 var builder = WebApplication.CreateBuilder(args);

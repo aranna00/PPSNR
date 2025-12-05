@@ -18,7 +18,8 @@
 <div id="canvas">
     @foreach (var s in _slots)
     {
-        if (_placements.TryGetValue((s.Id, _viewProfile), out var p) && (_showBorders || (p.Visible && !string.IsNullOrEmpty(s.ImageUrl) && s.ImageUrl[0] == '/')))
+        // Render when borders are on OR when placement is visible and an image is present (local or external)
+        if (_placements.TryGetValue((s.Id, _viewProfile), out var p) && (_showBorders || (p.Visible && !string.IsNullOrEmpty(s.ImageUrl))))
         {
             <img class="@($"slot-img{(_showBorders ? " slot-outline" : string.Empty)}")"
                  src="@s.ImageUrl"
@@ -127,7 +128,8 @@
                         var slot = _slots.FirstOrDefault(s => s.Id == id);
                         if (slot != null)
                         {
-                            if (img != null) slot.ImageUrl = img;
+                            // Apply image update even when null to support clearing from Select page
+                            slot.ImageUrl = img;
                             if (width.HasValue) slot.Width = width.Value;
                             if (height.HasValue) slot.Height = height.Value;
                             if (profile != null)
@@ -159,7 +161,7 @@
                         try
                         {
                             var root = envelope.Data.Value;
-                            if (root.TryGetProperty("show", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False)
+                            if (root.TryGetProperty("show", out var s) && (s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False))
                             {
                                 var value = s.GetBoolean();
                                 InvokeAsync(() => { _showBorders = value; StateHasChanged(); });

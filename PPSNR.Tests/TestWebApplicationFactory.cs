@@ -18,6 +18,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PPSNR.Server.Data;
+using PPSNR.Server.Shared;
 
 namespace PPSNR.Tests;
 
@@ -178,7 +179,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             // Remove any existing IEmailService/IInviteEmailTemplate registrations
             while (true)
             {
-                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(PPSNR.Server.Services.IEmailService));
+                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(IEmailService));
                 if (desc == null) break;
                 services.Remove(desc);
             }
@@ -188,7 +189,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 if (desc == null) break;
                 services.Remove(desc);
             }
-            services.AddSingleton<PPSNR.Server.Services.IEmailService, PPSNR.Tests.TestEmailService>();
+            services.AddSingleton<IEmailService, PPSNR.Tests.TestEmailService>();
             services.AddSingleton<PPSNR.Server.Services.IInviteEmailTemplate, TestInviteEmailTemplate>();
         });
 

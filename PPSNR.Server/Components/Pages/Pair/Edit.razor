@@ -52,7 +52,7 @@ else
         {
             @foreach (var s in slots.Where(x => x.LayoutId == l.Id))
             {
-                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id.ToString()" data-layout-id="@l.Id.ToString()" data-z-index="@GetZIndex(s).ToString()" data-visible="@GetVisibleAttr(s)" data-image-url="@GetImageSrc(s)" data-index="@s.Index.ToString()">
+                <div class="@GetClass(s)" style="@GetStyle(s)" data-slot-id="@s.Id.ToString()" data-layout-id="@l.Id.ToString()" data-z-index="@GetZIndex(s).ToString()" data-visible="@GetVisibleAttr(s)" data-image-url="@GetImageDataAttr(s)" data-index="@s.Index.ToString()">
                     <img src="@GetImageSrc(s)" draggable="false" alt="@GetAltText(s)" />
                     <span class="resizer nw" data-dir="nw"></span>
                     <span class="resizer n" data-dir="n"></span>
@@ -81,7 +81,6 @@ else
     private const string TransparentPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAoMBgVqvJi8AAAAASUVORK5CYII=";
     private SlotProfile editProfile;
     private bool _jsReady; // set after first interactive render completes
-    private bool _pendingClearInlineGeometry; // request to run JS clear when next render is ready
     private bool _disposed; // component is being disposed (circuit disconnect/navigation)
     private bool _bordersOn; // current requested borders state sent to viewers
 
@@ -175,14 +174,31 @@ else
                                 if (height.HasValue) pl.Height = height.Value;
                             }
                         }
-                        if (dto.ImageUrl != null)
-                        {
-                            slot.ImageUrl = dto.ImageUrl;
-                        }
+                        // Apply image update even when null to support clearing
+                        slot.ImageUrl = dto.ImageUrl;
                         if (width.HasValue) slot.Width = width.Value;
                         if (height.HasValue) slot.Height = height.Value;
                         InvokeAsync(StateHasChanged);
                     }
+                }
+                else if (string.Equals(envelope.Type, "PlacementsReset", StringComparison.OrdinalIgnoreCase))
+                {
+                    // When another client resets placements, refresh and reinitialize drag handlers
+                    InvokeAsync(async () =>
+                    {
+                        await ReloadPlacementsForCurrentProfileAsync();
+                        StateHasChanged();
+
+                        // Wait for browser to render new styles then reinitialize drag handlers
+                        if (_jsReady && !_disposed)
+                        {
+                            try
+                            {
+                                await JS.InvokeAsync<object>("PPSNR_Drag.reinitializeAfterRender");
+                            }
+                            catch { /* ignore JS invocation failures */ }
+                        }
+                    });
                 }
             }
             catch { /* ignore malformed messages */ }
@@ -209,27 +225,6 @@ else
             catch (ObjectDisposedException)
             {
                 _jsReady = false;
-            }
-        }
-
-        // After any render, if we have a pending JS clear request and JS is ready, execute it safely
-        if (_pendingClearInlineGeometry && _jsReady && !_disposed)
-        {
-            try
-            {
-                await JS.InvokeVoidAsync("PPSNR_Drag.clearInlineGeometry");
-            }
-            catch (JSDisconnectedException)
-            {
-                // Ignore; circuit disconnected
-            }
-            catch (ObjectDisposedException)
-            {
-                // Ignore
-            }
-            finally
-            {
-                _pendingClearInlineGeometry = false;
             }
         }
     }
@@ -289,6 +284,7 @@ else
         var visible = GetVisible(s);
         return visible ? "drag" : "drag inactive";
     }
+    private string GetImageDataAttr(Slot s) => s.ImageUrl ?? string.Empty;
     private bool GetVisible(Slot s)
     {
         if (placements.TryGetValue(s.Id, out var p)) return p.Visible;
@@ -347,9 +343,19 @@ else
 
             // Reload placements from DB for current profile using a fresh context (avoid stale tracked entities)
             await ReloadPlacementsForCurrentProfileAsync();
-            // Defer JS to render phase to avoid disconnected/prerender issues
-            _pendingClearInlineGeometry = true;
+            
             StateHasChanged();
+            
+            // Wait for browser to render and paint the new styles before reinitializing drag
+            // This ensures the server-rendered styles are visible before we re-attach handlers
+            if (_jsReady && !_disposed)
+            {
+                try
+                {
+                    await JS.InvokeAsync<object>("PPSNR_Drag.reinitializeAfterRender");
+                }
+                catch { /* ignore JS invocation failures */ }
+            }
         }
         catch
         {

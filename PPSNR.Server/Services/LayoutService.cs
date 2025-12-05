@@ -87,7 +87,15 @@ public class LayoutService
         // Do not alter geometry on the Slot row; treat X/Y/ZIndex as immutable defaults.
         // Only update shared content fields (visible/image/size/type/index).
         existing.Visible = slot.Visible;
-        existing.ImageUrl = slot.ImageUrl;
+        // Sanitize: avoid persisting 1x1 transparent PNG placeholders coming from editor UI
+        if (!string.IsNullOrWhiteSpace(slot.ImageUrl) && slot.ImageUrl.StartsWith("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", StringComparison.Ordinal))
+        {
+            existing.ImageUrl = null;
+        }
+        else
+        {
+            existing.ImageUrl = slot.ImageUrl;
+        }
         existing.Width = slot.Width;
         existing.Height = slot.Height;
         existing.SlotType = slot.SlotType;
@@ -199,21 +207,50 @@ public class LayoutService
         if (slots.Count == 0) return 0;
 
         var slotIds = slots.Select(s => s.Id).ToList();
-        var placements = await _db.SlotPlacements.Where(p => slotIds.Contains(p.SlotId) && p.Profile == profile).ToListAsync(ct);
+
+        // Load placements with AsNoTracking to avoid change tracker issues on subsequent calls
+        var placements = await _db.SlotPlacements
+            .Where(p => slotIds.Contains(p.SlotId) && p.Profile == profile)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
         var bySlot = placements.ToDictionary(p => p.SlotId, p => p);
 
         int changed = 0;
-        foreach (var s in slots)
+
+        // First, update existing placements using ExecuteUpdateAsync to avoid tracking conflicts
+        var existingSlotIds = bySlot.Keys.ToList();
+        if (existingSlotIds.Count > 0)
         {
-            if (!bySlot.TryGetValue(s.Id, out var pl))
+            foreach (var s in slots.Where(x => existingSlotIds.Contains(x.Id)))
             {
-                pl = new SlotPlacement { SlotId = s.Id, Profile = profile };
-                _db.SlotPlacements.Add(pl);
+                var slotId = s.Id;
+                await _db.SlotPlacements
+                    .Where(p => p.SlotId == slotId && p.Profile == profile)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(p => p.X, s.X)
+                        .SetProperty(p => p.Y, s.Y)
+                        .SetProperty(p => p.ZIndex, s.ZIndex)
+                        .SetProperty(p => p.Visible, s.Visible)
+                        .SetProperty(p => p.Width, s.Width)
+                        .SetProperty(p => p.Height, s.Height), ct);
+                changed++;
             }
-            ApplyDefaultPlacementFromSlot(s, pl);
-            changed++;
         }
-        await _db.SaveChangesAsync(ct);
+
+        // Then, create new placements for slots that don't have one yet
+        var missingSlotIds = slots.Where(s => !bySlot.ContainsKey(s.Id)).ToList();
+        if (missingSlotIds.Count > 0)
+        {
+            foreach (var s in missingSlotIds)
+            {
+                var pl = new SlotPlacement { SlotId = s.Id, Profile = profile };
+                ApplyDefaultPlacementFromSlot(s, pl);
+                _db.SlotPlacements.Add(pl);
+                changed++;
+            }
+            await _db.SaveChangesAsync(ct);
+        }
 
         // Optional: broadcast a bulk reset event so connected editors can refresh quickly
         try

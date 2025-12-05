@@ -260,7 +260,8 @@
                     var slot = allSlots.FirstOrDefault(s => s.Id == id);
                     if (slot != null)
                     {
-                        if (imageUrl != null) slot.ImageUrl = imageUrl;
+                        // Apply image update even when null to support clearing from the chooser
+                        slot.ImageUrl = imageUrl;
                         if (profile != null && (int)profile == (int)(_isOwner ? SlotProfile.Owner : SlotProfile.Partner))
                         {
                             if (_placements.TryGetValue(slot.Id, out var placement))
@@ -289,7 +290,14 @@
         try
         {
             // Update shared image on the slot record
-            slot.ImageUrl = imageUrl;
+            if (string.IsNullOrWhiteSpace(imageUrl))
+            {
+                slot.ImageUrl = null;
+            }
+            else
+            {
+                slot.ImageUrl = imageUrl;
+            }
             await LayoutSvc.UpdateSlotAsync(PairId, slot);
 
             _statusMessage = "Updated successfully";

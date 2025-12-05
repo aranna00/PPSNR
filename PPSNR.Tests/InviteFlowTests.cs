@@ -12,6 +12,7 @@ using NUnit.Framework;
 using PPSNR.Server.Data;
 using PPSNR.Server.Data.Entities;
 using PPSNR.Server.Services;
+using PPSNR.Server.Shared;
 
 namespace PPSNR.Tests;
 

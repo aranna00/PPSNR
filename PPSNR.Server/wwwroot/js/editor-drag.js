@@ -2,11 +2,11 @@
 // Exposes: window.PPSNR_Drag.init(apiBase, pairId)
 (function(){
   const PPSNR_Drag = {
-    init(apiBase, pairId){
+    init(apiBase, pairId, forceReinit){
       try {
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
-        if (canvas.__pps_init) return; // prevent double init
+        if (canvas.__pps_init && !forceReinit) return; // prevent double init unless forced
 
         // Derive pairId and apiBase if not provided (handles auto-init case)
         const pathSegs = (window.location.pathname || '')
@@ -30,11 +30,23 @@
           }
         }
 
+        // If reinitializing, just reset the attached flag to allow re-attachment
+        // Don't clone - that loses the server-rendered styles from Blazor
+        if (forceReinit && canvas.__pps_init) {
+          const elems = Array.from(canvas.querySelectorAll('.drag'));
+          elems.forEach(el => {
+            el.__pps_attached = false;
+          });
+        }
+
         // mark initialized only after we have derived the values
         canvas.__pps_init = true;
 
         const elems = Array.from(canvas.querySelectorAll('.drag'));
-        elems.forEach(el => attachDragAndResize(el, base, pair));
+        elems.forEach(el => {
+          // Only attach if not already attached
+          attachDragAndResize(el, base, pair);
+        });
         // Observe for any dynamic changes (if future updates re-render)
         const mo = new MutationObserver(muts => {
           for (const m of muts) {
@@ -53,22 +65,6 @@
       } catch (e) {
         console.error('[editor-drag] init failed', e);
       }
-    },
-    // Clear inline geometry so Blazor-rendered placement styles take effect
-    clearInlineGeometry(){
-      try{
-        const canvas = document.getElementById('canvas');
-        if (!canvas) return;
-        const elems = Array.from(canvas.querySelectorAll('.drag'));
-        elems.forEach(el => {
-          el.style.left = '';
-          el.style.top = '';
-          el.style.width = '';
-          el.style.height = '';
-          // Keep z-index attribute as data for saves; drop inline to let server-provided style win
-          el.style.zIndex = '';
-        });
-      }catch(e){ console.warn('[editor-drag] clearInlineGeometry failed', e); }
     }
   };
 
@@ -100,6 +96,34 @@
 
   function attachDragAndResize(el, apiBase, pairId){
     if (el.__pps_attached) return;
+
+    // Remove old handlers if re-attaching
+    if (el.__pps_pointerDownHandler) {
+      el.removeEventListener('pointerdown', el.__pps_pointerDownHandler, { passive: false });
+      el.removeEventListener('pointermove', el.__pps_pointerMoveHandler, { passive: false });
+      el.removeEventListener('pointerup', el.__pps_pointerUpHandler, { passive: false });
+      el.removeEventListener('lostpointercapture', el.__pps_pointerCancelHandler);
+
+      // Also remove window-level listeners that were attached during dragging
+      if (el.__pps_windowMoveListener) {
+        window.removeEventListener('pointermove', el.__pps_windowMoveListener, { passive: false });
+      }
+      if (el.__pps_windowUpListener) {
+        window.removeEventListener('pointerup', el.__pps_windowUpListener, { passive: false });
+      }
+      if (el.__pps_windowCancelListener) {
+        window.removeEventListener('pointercancel', el.__pps_windowCancelListener, { passive: false });
+      }
+
+      el.__pps_pointerDownHandler = null;
+      el.__pps_pointerMoveHandler = null;
+      el.__pps_pointerUpHandler = null;
+      el.__pps_pointerCancelHandler = null;
+      el.__pps_windowMoveListener = null;
+      el.__pps_windowUpListener = null;
+      el.__pps_windowCancelListener = null;
+    }
+
     el.__pps_attached = true;
     // Ensure the element itself doesn't trigger native panning/zooming
     el.style.touchAction = 'none';
@@ -130,6 +154,10 @@
       // Prevent native drag image and text selection
       ev.preventDefault();
       ev.stopPropagation();
+      // Store window listeners on element so they can be removed later
+      el.__pps_windowMoveListener = onPointerMove;
+      el.__pps_windowUpListener = onPointerUp;
+      el.__pps_windowCancelListener = onPointerCancel;
       // Fallback listeners on window in case pointer capture is not honored on this platform
       window.addEventListener('pointermove', onPointerMove, { passive: false });
       window.addEventListener('pointerup', onPointerUp, { passive: false, once: true });
@@ -300,6 +328,12 @@
       ev.stopPropagation();
     }
 
+    // Store handler references so they can be removed during re-attachment
+    el.__pps_pointerDownHandler = onPointerDown;
+    el.__pps_pointerMoveHandler = onPointerMove;
+    el.__pps_pointerUpHandler = onPointerUp;
+    el.__pps_pointerCancelHandler = onPointerCancel;
+
     el.addEventListener('pointerdown', onPointerDown, { passive: false });
     // Listen on the element itself since it holds the pointer capture
     el.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -356,6 +390,33 @@
     }
     await window.ppsnr.postWithAntiforgery(url, 'POST', payload);
   }
+
+  PPSNR_Drag.reinitializeAfterRender = function(){
+    try {
+      const canvas = document.getElementById('canvas');
+      if (!canvas) return;
+
+      // Get the apiBase and pairId from the existing initialization
+      const pairId = canvas.getAttribute('data-pair-id');
+
+      // Derive apiBase from window location
+      const pathSegs = (window.location.pathname || '')
+        .split('/')
+        .filter(Boolean);
+      const urlMode = pathSegs.length >= 3 ? pathSegs[1] : null;
+      const urlToken = pathSegs.length >= 3 ? pathSegs[2] : null;
+
+      let apiBase = '/api';
+      if (urlMode === 'partner-edit' && urlToken) {
+        apiBase = `/api/partner/${urlToken}`;
+      }
+
+      // Re-run init with forceReinit=true which will detach old handlers and re-attach
+      PPSNR_Drag.init(apiBase, pairId, true);
+    } catch (e) {
+      console.error('[editor-drag] reinitializeAfterRender failed', e);
+    }
+  };
 
   window.PPSNR_Drag = PPSNR_Drag;
 
