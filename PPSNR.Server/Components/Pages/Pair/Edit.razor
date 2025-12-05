@@ -134,11 +134,45 @@ else
         await NormalizeSlotImagesAsync(slots);
 
         // SignalR to see live updates from other editors
+        await SetupHubAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && authorized)
+        {
+            var apiBase = editProfile == SlotProfile.Partner ? $"/api/partner/{token}" : "/api";
+            try
+            {
+                await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
+                _jsReady = true;
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit not ready; will try again on next render
+                _jsReady = false;
+            }
+            catch (ObjectDisposedException)
+            {
+                _jsReady = false;
+            }
+        }
+    }
+
+    private async Task ToggleBordersAsync()
+    {
+        _bordersOn = !_bordersOn;
+        // Broadcast to viewers via SignalR so the existing OBS browser source updates live
+        await LayoutSvc.BroadcastToggleBordersAsync(pairId, _bordersOn);
+    }
+
+    private async Task SetupHubAsync()
+    {
         hub = new HubConnectionBuilder()
             .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
             .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
             .Build();
-        // Typed envelope handler for forward-compatible messages
+
         hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
         {
             try
@@ -203,38 +237,68 @@ else
             }
             catch { /* ignore malformed messages */ }
         });
-        await hub.StartAsync();
-        await hub.SendAsync("SubscribeToPair", pairId.ToString());
-    }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && authorized)
+
+        hub.Closed += async (error) =>
         {
-            var apiBase = editProfile == SlotProfile.Partner ? $"/api/partner/{token}" : "/api";
+            if (_disposed) return;
+
             try
             {
-                await JS.InvokeVoidAsync("PPSNR_Drag.init", apiBase, pairId.ToString());
-                _jsReady = true;
+
+                var isReconnecting = false;
+                try
+                {
+                    isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
+                }
+                catch { /* JS might not be available during circuit transitions */ }
+
+                var waited = 0;
+                while (isReconnecting && !_disposed && waited < 120)
+                {
+                    await Task.Delay(1000);
+                    waited += 1;
+                    try
+                    {
+                        isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
+                    }
+                    catch { isReconnecting = false; }
+                }
+
+                if (_disposed) return;
+
+                // short delay to let server finish restarting if applicable
+                await Task.Delay(500);
+
+                if (hub != null)
+                {
+                    await hub.DisposeAsync();
+                }
+
+                await SetupHubAsync();
             }
-            catch (JSDisconnectedException)
+            catch
             {
-                // Circuit not ready; will try again on next render
-                _jsReady = false;
+                // If reconnection fails, the next Closed event will trigger another attempt
             }
-            catch (ObjectDisposedException)
-            {
-                _jsReady = false;
-            }
+        };
+
+        try
+        {
+            Console.WriteLine($"[Edit] Starting hub at {DateTime.UtcNow:o}");
+            await hub.StartAsync();
+            Console.WriteLine($"[Edit] Hub started at {DateTime.UtcNow:o}");
+            await hub.SendAsync("SubscribeToPair", pairId.ToString());
+            Console.WriteLine($"[Edit] Subscribed to pair {pairId} at {DateTime.UtcNow:o}");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Edit] Failed to start hub: {ex.Message}");
+            throw;
         }
     }
 
-    private async Task ToggleBordersAsync()
-    {
-        _bordersOn = !_bordersOn;
-        // Broadcast to viewers via SignalR so the existing OBS browser source updates live
-        await LayoutSvc.BroadcastToggleBordersAsync(pairId, _bordersOn);
-    }
 
     private static string GetAltText(Slot s)
     {

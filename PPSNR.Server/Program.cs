@@ -156,8 +156,6 @@ if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twi
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
-connectionString = "Host=aranserver.local;Port=5432;Database=ppsnr;Username=ppsnr;Password=ppsnr";
-
 // Register a DbContextFactory so Razor components/pages can inject
 // IDbContextFactory<ApplicationDbContext> (used by Pages/Pair/Index.razor).
 // Avoid mixing AddDbContext and AddDbContextFactory for the same context, which

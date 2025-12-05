@@ -10,17 +10,17 @@
 
 <h1>Streamer Pairs</h1>
 
-<div style="margin-bottom:8px;">
+<div class="mb-2">
     <button @onclick="CreateSamplePair" disabled="@_busy" class="btn btn-primary">@(_busy ? "Creating..." : "Create Sample Pair")</button>
     @if (!string.IsNullOrWhiteSpace(_status))
     {
-        <span style="margin-left:10px; color:@(_statusIsError ? "#c00" : "#090")">@_status</span>
+        <span class="@(_statusIsError ? "text-danger" : "text-success") ms-10px">@_status</span>
     }
-    <button style="margin-left:10px;" @onclick="Reload" disabled="@_busy" class="btn btn-secondary">Reload</button>
-    <span style="margin-left:10px; color:#666">Count: @_pairs.Count</span>
+    <button class="btn btn-secondary ms-10px" @onclick="Reload" disabled="@_busy">Reload</button>
+    <span class="ms-10px text-muted">Count: @_pairs.Count</span>
     @if (_lastCreatedId != Guid.Empty)
     {
-        <span style="margin-left:10px; color:#666">Last created: @_lastCreatedId</span>
+        <span class="ms-10px text-muted">Last created: @_lastCreatedId</span>
     }
 </div>
 
@@ -60,9 +60,9 @@
 
                 @if (isOwner)
                 {
-                    <div style="margin-top:6px;">
+                    <div class="mt-6px">
                         <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
-                        <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                        <button class="ms-6px" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
                     </div>
                 }
             }
@@ -70,20 +70,20 @@
             {
                 @if (isOwner)
                 {
-                    <div style="margin-top:6px;">
+                    <div class="mt-6px">
                         <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
-                        <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                        <button class="ms-6px" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
                     </div>
                 }
             }
 
             @if (isOwner && string.IsNullOrEmpty(p.PartnerUserId))
             {
-                <div style="margin-top:8px;">
+                <div class="mt-8px">
                     <input placeholder="partner@example.com"
                            value="@GetInviteEmail(p.Id)"
                            @oninput="(ChangeEventArgs e) => SetInviteEmail(p.Id, e.Value?.ToString() ?? string.Empty)" />
-                    <button style="margin-left:6px;" @onclick="() => InvitePartner(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Send Invite")</button>
+                    <button class="ms-6px" @onclick="() => InvitePartner(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Send Invite")</button>
                 </div>
             }
         </li>

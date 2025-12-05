@@ -44,7 +44,7 @@ html, body, #app {
   position: fixed;
   top: 8px;
   left: 8px;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   color: white;
   padding: 6px 10px;
   border-radius: 6px;
@@ -56,7 +56,7 @@ html, body, #app {
   position: absolute;
   touch-action: none;
   cursor: move;
-  outline: 2px dashed rgba(255,255,255,0.35);
+  outline: 2px dashed rgba(255, 255, 255, 0.35);
   outline-offset: -2px;
 
   // image fills the box but preserves aspect ratio
@@ -74,19 +74,63 @@ html, body, #app {
     position: absolute;
     width: 10px;
     height: 10px;
-    background: rgba(255,255,255,0.9);
-    border: 1px solid rgba(0,0,0,0.6);
-    box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
     border-radius: 2px;
   }
-  .resizer.n { cursor: ns-resize; top: -5px; left: 50%; transform: translateX(-50%); }
-  .resizer.s { cursor: ns-resize; bottom: -5px; left: 50%; transform: translateX(-50%); }
-  .resizer.e { cursor: ew-resize; right: -5px; top: 50%; transform: translateY(-50%); }
-  .resizer.w { cursor: ew-resize; left: -5px; top: 50%; transform: translateY(-50%); }
-  .resizer.nw { cursor: nwse-resize; top: -5px; left: -5px; }
-  .resizer.ne { cursor: nesw-resize; top: -5px; right: -5px; }
-  .resizer.sw { cursor: nesw-resize; bottom: -5px; left: -5px; }
-  .resizer.se { cursor: nwse-resize; bottom: -5px; right: -5px; }
+
+  .resizer.n {
+    cursor: ns-resize;
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .resizer.s {
+    cursor: ns-resize;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .resizer.e {
+    cursor: ew-resize;
+    right: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .resizer.w {
+    cursor: ew-resize;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .resizer.nw {
+    cursor: nwse-resize;
+    top: -5px;
+    left: -5px;
+  }
+
+  .resizer.ne {
+    cursor: nesw-resize;
+    top: -5px;
+    right: -5px;
+  }
+
+  .resizer.sw {
+    cursor: nesw-resize;
+    bottom: -5px;
+    left: -5px;
+  }
+
+  .resizer.se {
+    cursor: nwse-resize;
+    bottom: -5px;
+    right: -5px;
+  }
 }
 
 .drag.inactive {
@@ -202,4 +246,116 @@ h1 {
       }
     }
   }
+}
+
+.components-reconnect-first-attempt-visible,
+.components-reconnect-repeated-attempt-visible,
+.components-reconnect-failed-visible,
+.components-reconnect-button,
+.components-pause-visible,
+.components-resume-button,
+.components-resume-failed-visible {
+  display: none !important;
+}
+
+// -----------------------------------------
+// Custom utility classes (moved from inline styles)
+// -----------------------------------------
+
+// Spacing (pixel-specific utilities where Bootstrap lacks exact values)
+.mb-8px {
+  margin-bottom: 8px;
+}
+
+.mt-6px {
+  margin-top: 6px;
+}
+
+.mt-8px {
+  margin-top: 8px;
+}
+
+.mt-10px {
+  margin-top: 10px;
+}
+
+.my-10px {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.ms-6px {
+  margin-left: 6px;
+}
+
+.ms-10px {
+  margin-left: 10px;
+}
+
+// Sizing
+.maxh-150px {
+  max-height: 150px;
+}
+
+.maxh-100px {
+  max-height: 100px;
+}
+
+// Autocomplete/dropdown menu container above other content
+.autocomplete-menu {
+  z-index: 1000;
+  max-height: 240px;
+  overflow: auto;
+}
+
+// Icons and rendering
+.icon-32 {
+  width: 32px;
+  height: 32px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+// Font sizing
+.fs-90 {
+  font-size: 0.9em;
+}
+
+// Reconnect modal helpers
+#ppsnr-reconnect-status {
+  @extend .my-10px;
+}
+
+#ppsnr-retry-counter {
+  @extend .mt-10px;
+}
+
+// -----------------------------------------
+// Moved inline component styles
+// -----------------------------------------
+
+// Pair View canvas and slot visuals
+html, body, #app {
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+#canvas {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slot-img {
+  position: absolute;
+  image-rendering: auto;
+}
+
+.slot-outline {
+  outline: 2px dashed rgba(0, 150, 255, 0.8);
+  outline-offset: -1px;
 }

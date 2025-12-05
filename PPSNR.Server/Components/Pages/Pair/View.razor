@@ -6,14 +6,10 @@
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
 @inject Services.ImagesCacheService ImagesCache
+@inject IJSRuntime JS
 
 
-<style>
-    html, body, #app { background: transparent; margin: 0; padding: 0; }
-    #canvas { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-    .slot-img { position: absolute; image-rendering: auto; }
-    .slot-outline { outline: 2px dashed rgba(0, 150, 255, 0.8); outline-offset: -1px; }
-</style>
+@* Styles moved to wwwroot/app.scss *@
 
 <div id="canvas">
     @foreach (var s in _slots)
@@ -44,6 +40,7 @@
     private bool _authorized;
     private SlotProfile _viewProfile;
     private bool _showBorders;
+    private bool _jsReady; // set when first interactive render completes
 
     protected override async Task OnInitializedAsync()
     {
@@ -99,82 +96,132 @@
     {
         if (firstRender && _authorized && _hub == null)
         {
+            // JS is available once we reach OnAfterRenderAsync; mark ready before setup
+            _jsReady = true;
 
-            _hub = new HubConnectionBuilder()
-                .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
-                .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
-                .Build();
-            // Typed envelope handler for forward-compatible messages (legacy dynamic handlers removed)
-            _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
+            await SetupHubAsync();
+        }
+    }
+
+    private async Task SetupHubAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
+            .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
+            .Build();
+
+        // Typed envelope handler for forward-compatible messages
+        _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
+        {
+            try
             {
-                try
+                if (envelope == null) return;
+                if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
                 {
-                    if (envelope == null) return;
-                    if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
-                    {
-                        var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
-                        if (dto == null) return;
+                    var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
+                    if (dto == null) return;
 
-                        var id = dto.Id;
-                        var profile = dto.Profile;
-                        var x = dto.X;
-                        var y = dto.Y;
-                        var z = dto.ZIndex;
-                        var vis = dto.Visible;
-                        var img = dto.ImageUrl;
-                        var width = dto.Width;
-                        var height = dto.Height;
+                    var id = dto.Id;
+                    var profile = dto.Profile;
+                    var x = dto.X;
+                    var y = dto.Y;
+                    var z = dto.ZIndex;
+                    var vis = dto.Visible;
+                    var img = dto.ImageUrl;
+                    var width = dto.Width;
+                    var height = dto.Height;
 
-                        var slot = _slots.FirstOrDefault(s => s.Id == id);
-                        if (slot != null)
-                        {
-                            // Apply image update even when null to support clearing from Select page
-                            slot.ImageUrl = img;
-                            if (width.HasValue) slot.Width = width.Value;
-                            if (height.HasValue) slot.Height = height.Value;
-                            if (profile != null)
-                            {
-                                var prof = (SlotProfile)profile.Value;
-                                if (_placements.TryGetValue((slot.Id, prof), out var placement))
-                                {
-                                    if (x.HasValue) placement.X = x.Value;
-                                    if (y.HasValue) placement.Y = y.Value;
-                                    if (z.HasValue) placement.ZIndex = z.Value;
-                                    if (vis.HasValue) placement.Visible = vis.Value;
-                                    if (width.HasValue) placement.Width = width.Value;
-                                    if (height.HasValue) placement.Height = height.Value;
-                                }
-                            }
-                            InvokeAsync(StateHasChanged);
-                        }
-                    }
-                    else if (string.Equals(envelope.Type, "PlacementsReset", StringComparison.OrdinalIgnoreCase))
+                    var slot = _slots.FirstOrDefault(s => s.Id == id);
+                    if (slot != null)
                     {
-                        InvokeAsync(async () =>
+                        // Apply image update even when null to support clearing from Select page
+                        slot.ImageUrl = img;
+                        if (width.HasValue) slot.Width = width.Value;
+                        if (height.HasValue) slot.Height = height.Value;
+                        if (profile != null)
                         {
-                            await ReloadPlacementsAsync();
-                            StateHasChanged();
-                        });
-                    }
-                    else if (string.Equals(envelope.Type, "ToggleBorders", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
-                    {
-                        try
-                        {
-                            var root = envelope.Data.Value;
-                            if (root.TryGetProperty("show", out var s) && (s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False))
+                            var prof = (SlotProfile)profile.Value;
+                            if (_placements.TryGetValue((slot.Id, prof), out var placement))
                             {
-                                var value = s.GetBoolean();
-                                InvokeAsync(() => { _showBorders = value; StateHasChanged(); });
+                                if (x.HasValue) placement.X = x.Value;
+                                if (y.HasValue) placement.Y = y.Value;
+                                if (z.HasValue) placement.ZIndex = z.Value;
+                                if (vis.HasValue) placement.Visible = vis.Value;
+                                if (width.HasValue) placement.Width = width.Value;
+                                if (height.HasValue) placement.Height = height.Value;
                             }
                         }
-                        catch { /* ignore */ }
+                        InvokeAsync(StateHasChanged);
                     }
                 }
-                catch { /* ignore malformed event */ }
-            });
-            await _hub.StartAsync();
-            await _hub.SendAsync("SubscribeToPair", PairId.ToString());
-        }
+                else if (string.Equals(envelope.Type, "PlacementsReset", StringComparison.OrdinalIgnoreCase))
+                {
+                    InvokeAsync(async () =>
+                    {
+                        await ReloadPlacementsAsync();
+                        StateHasChanged();
+                    });
+                }
+                else if (string.Equals(envelope.Type, "ToggleBorders", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                {
+                    try
+                    {
+                        var root = envelope.Data.Value;
+                        if (root.TryGetProperty("show", out var s) && (s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False))
+                        {
+                            var value = s.GetBoolean();
+                            InvokeAsync(() => { _showBorders = value; StateHasChanged(); });
+                        }
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+            catch { /* ignore malformed event */ }
+        });
+
+        // When hub closes, attempt graceful reconnection without page reload
+        _hub.Closed += async (error) =>
+        {
+            try
+            {
+                // If Blazor's reconnect UI is active, wait until it finishes to avoid interfering
+                var isReconnecting = false;
+                try
+                {
+                    isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
+                }
+                catch { /* JS might not be available during circuit transitions */ }
+
+                var waited = 0;
+                while (isReconnecting && waited < 120)
+                {
+                    await Task.Delay(1000);
+                    waited += 1;
+                    try
+                    {
+                        isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
+                    }
+                    catch { isReconnecting = false; }
+                }
+
+                // short delay to let server finish restarting if applicable
+                await Task.Delay(500);
+
+                if (_hub != null)
+                {
+                    await _hub.DisposeAsync();
+                }
+
+                await SetupHubAsync();
+            }
+            catch
+            {
+                // If reconnection fails, the next Closed event will trigger another attempt
+            }
+        };
+
+        await _hub.StartAsync();
+        await _hub.SendAsync("SubscribeToPair", PairId.ToString());
     }
 
     public void Dispose()

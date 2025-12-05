@@ -69,7 +69,7 @@
                                 <h5 class="card-title">Badge @slot.Index</h5>
                                 @if (!string.IsNullOrEmpty(slot.ImageUrl))
                                 {
-                                    <img src="@slot.ImageUrl" alt="Badge" class="img-fluid mb-2" style="max-height: 100px;" />
+                                    <img src="@slot.ImageUrl" alt="Badge" class="img-fluid mb-2 maxh-100px" />
                                 }
                                 <input type="text" class="form-control mb-2" placeholder="Image URL" value="@slot.ImageUrl" @onchange="e => UpdateSlotImage(slot, e.Value?.ToString())" />
                                 <div class="form-check">
@@ -94,15 +94,25 @@
     private StreamerPair? _pair;
     private List<Slot> _pokemonSlots = [];
     private List<Slot> _badgeSlots = [];
+    private List<Slot> _allSlots = [];
     private Dictionary<Guid, SlotPlacement> _placements = new();
     private string _activeTab = "pokemon";
     private string? _statusMessage;
     private bool _statusIsError;
     private HubConnection? _hub;
+    private bool _jsReady; // set after first interactive render
 
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsReady = true;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -133,21 +143,95 @@
         var profile = _isOwner ? SlotProfile.Owner : SlotProfile.Partner;
         var layouts = Db.Layouts.Where(l => l.PairId == PairId).ToList();
         var layoutIds = layouts.Select(l => l.Id).ToList();
-        var allSlots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId)).OrderBy(s => s.Index).ToList();
+        _allSlots = Db.Slots.Where(s => layoutIds.Contains(s.LayoutId)).OrderBy(s => s.Index).ToList();
 
         // Load placements for current profile
         _placements = Db.SlotPlacements
-            .Where(p => allSlots.Select(s => s.Id).Contains(p.SlotId) && p.Profile == profile)
+            .Where(p => _allSlots.Select(s => s.Id).Contains(p.SlotId) && p.Profile == profile)
             .ToDictionary(p => p.SlotId, p => p);
 
-        _pokemonSlots = allSlots.Where(s => s.SlotType == SlotType.Pokemon).ToList();
-        _badgeSlots = allSlots.Where(s => s.SlotType == SlotType.Badge).ToList();
+        _pokemonSlots = _allSlots.Where(s => s.SlotType == SlotType.Pokemon).ToList();
+        _badgeSlots = _allSlots.Where(s => s.SlotType == SlotType.Badge).ToList();
 
         // SignalR for live updates
+        await SetupHubAsync();
+    }
+
+    private async Task SetupHubAsync()
+    {
         _hub = new HubConnectionBuilder()
             .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
             .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
             .Build();
+
+        // When hub closes, attempt graceful reconnection without page reload
+        _hub.Closed += async (error) =>
+        {
+            try
+            {
+                Console.WriteLine($"[Select] Hub.Closed fired at {DateTime.UtcNow:o}");
+                // If JS is available and reconnect UI is active, wait until it finishes to avoid interfering
+                var waited = 0;
+                var jsAvailable = _jsReady;
+
+                if (jsAvailable)
+                {
+                    try
+                    {
+                        var state = await JS.InvokeAsync<string>("PPSNR.getReconnectState");
+                        Console.WriteLine($"[Select] reconnect state from JS: {state}");
+                        while (state != null && (state == "show" || state == "failed" || state == "rejected") && waited < 120)
+                        {
+                            await Task.Delay(1000);
+                            waited += 1;
+                            try
+                            {
+                                state = await JS.InvokeAsync<string>("PPSNR.getReconnectState");
+                                Console.WriteLine($"[Select] reconnect state poll: {state} (waited={waited})");
+                            }
+                            catch { break; }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Select] JS interop failed: {ex.Message}");
+                        // JS interop failed; fall back to server-side wait
+                        jsAvailable = false;
+                    }
+                }
+
+                if (!jsAvailable)
+                {
+                    Console.WriteLine("[Select] JS not available, falling back to server-side backoff");
+                    // Fall back: wait a short backoff sequence on the server side (don't call JS)
+                    var backoff = new[] { 1000, 2000, 4000, 8000 };
+                    foreach (var ms in backoff)
+                    {
+                        await Task.Delay(ms);
+                        Console.WriteLine($"[Select] backoff wait {ms}ms");
+                        // If server is up and Blazor client regains circuit, the hub Closed may have not fired again yet
+                        // We'll proceed to recreate hub after these attempts
+                    }
+                }
+
+                // short delay to let server finish restarting if applicable
+                await Task.Delay(500);
+
+                if (_hub != null)
+                {
+                    await _hub.DisposeAsync();
+                }
+
+                Console.WriteLine($"[Select] Recreating hub at {DateTime.UtcNow:o}");
+                await SetupHubAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Select] Hub recreate failed: {ex.Message}");
+                // If reconnection fails, the next Closed event will trigger another attempt
+            }
+        };
+
         _hub.On<object>("SlotUpdated", payload =>
         {
             try
@@ -211,7 +295,7 @@
                     if (TryProp(json.RootElement, "ZIndex", out var zProp)) z = zProp.GetInt32();
                 }
 
-                var slot = allSlots.FirstOrDefault(s => s.Id == id);
+                var slot = _allSlots.FirstOrDefault(s => s.Id == id);
                 if (slot != null)
                 {
                     if (imageUrl != null)
@@ -257,7 +341,7 @@
                     var z = dto.ZIndex;
                     var visible = dto.Visible;
 
-                    var slot = allSlots.FirstOrDefault(s => s.Id == id);
+                    var slot = _allSlots.FirstOrDefault(s => s.Id == id);
                     if (slot != null)
                     {
                         // Apply image update even when null to support clearing from the chooser

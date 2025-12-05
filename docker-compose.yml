@@ -34,7 +34,8 @@ services:
       timeout: 5s
       retries: 3
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -46,6 +47,11 @@ services:
       - "5432"
     volumes:
       - ppsnr-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ppsnr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 
 volumes:

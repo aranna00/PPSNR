@@ -9972,4 +9972,93 @@ h1:focus, .h1:focus {
   text-align: start;
 }
 
+.components-reconnect-first-attempt-visible,
+.components-reconnect-repeated-attempt-visible,
+.components-reconnect-failed-visible,
+.components-reconnect-button,
+.components-pause-visible,
+.components-resume-button,
+.components-resume-failed-visible {
+  display: none !important;
+}
+
+.mb-8px {
+  margin-bottom: 8px;
+}
+
+.mt-6px {
+  margin-top: 6px;
+}
+
+.mt-8px {
+  margin-top: 8px;
+}
+
+.mt-10px, #ppsnr-retry-counter {
+  margin-top: 10px;
+}
+
+.my-10px, #ppsnr-reconnect-status {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.ms-6px {
+  margin-left: 6px;
+}
+
+.ms-10px {
+  margin-left: 10px;
+}
+
+.maxh-150px {
+  max-height: 150px;
+}
+
+.maxh-100px {
+  max-height: 100px;
+}
+
+.autocomplete-menu {
+  z-index: 1000;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.icon-32 {
+  width: 32px;
+  height: 32px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+.fs-90 {
+  font-size: 0.9em;
+}
+
+html, body, #app {
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+#canvas {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slot-img {
+  position: absolute;
+  image-rendering: auto;
+}
+
+.slot-outline {
+  outline: 2px dashed rgba(0, 150, 255, 0.8);
+  outline-offset: -1px;
+}
+
 /*# sourceMappingURL=app.css.map */

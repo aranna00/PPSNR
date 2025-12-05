@@ -7,7 +7,7 @@
             <h5 class="card-title">@(Profile == SlotProfile.Owner ? "Owner" : "Partner") @(Slot.Index + 1)</h5>
             @if (!string.IsNullOrEmpty(CurrentImageUrl))
             {
-                <img src="@CurrentImageUrl" alt="Pokemon" class="img-fluid mb-2" style="max-height: 150px;" />
+                <img src="@CurrentImageUrl" alt="Pokemon" class="img-fluid mb-2 maxh-150px" />
             }
 
             <div class="mb-2 position-relative">
@@ -17,12 +17,12 @@
                        @onblur="() => _ = OnSearchBlur()" />
                 @if (_isOpen)
                 {
-                    <div class="list-group position-absolute w-100" style="z-index: 1000; max-height: 240px; overflow:auto;">
+                    <div class="list-group position-absolute w-100 autocomplete-menu">
                         @foreach (var item in GetMatchesInternal(_searchText).Take(20))
                         {
                             <button type="button" class="list-group-item list-group-item-action d-flex align-items-center"
                                     @onclick="() => _ = SelectPokemonById(item.Id)">
-                                <img src="@item.IconUrl" alt="@item.DisplayName" style="width:32px;height:32px;image-rendering: pixelated;" class="me-2" />
+                                <img src="@item.IconUrl" alt="@item.DisplayName" class="me-2 icon-32 pixelated" />
                                 <span class="text-nowrap">#@item.Id.ToString("000") @item.DisplayName</span>
                             </button>
                         }
