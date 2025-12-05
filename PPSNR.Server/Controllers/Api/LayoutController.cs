@@ -51,6 +51,12 @@ public class LayoutController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
+        if (req == null || string.IsNullOrWhiteSpace(req.Email)) return BadRequest();
+
+        var pair = await _db.Pairs.FirstOrDefaultAsync(p => p.Id == pairId);
+        if (pair == null) return NotFound();
+        if (!string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal)) return Forbid();
+
         try
         {
             await antiforgery.ValidateRequestAsync(HttpContext);
@@ -59,12 +65,6 @@ public class LayoutController : ControllerBase
         {
             return BadRequest();
         }
-
-        if (req == null || string.IsNullOrWhiteSpace(req.Email)) return BadRequest();
-
-        var pair = await _db.Pairs.FirstOrDefaultAsync(p => p.Id == pairId);
-        if (pair == null) return NotFound();
-        if (!string.Equals(pair.OwnerUserId, userId, StringComparison.Ordinal)) return Forbid();
 
         var link = await _db.PairLinks.FirstOrDefaultAsync(l => l.PairId == pairId);
         if (link == null)

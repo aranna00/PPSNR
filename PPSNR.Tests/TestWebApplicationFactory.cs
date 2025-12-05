@@ -173,6 +173,23 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             using var scope = sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             db.Database.EnsureCreated();
+
+            // Replace email services with test doubles to avoid external dependencies/errors
+            // Remove any existing IEmailService/IInviteEmailTemplate registrations
+            while (true)
+            {
+                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(PPSNR.Server.Services.IEmailService));
+                if (desc == null) break;
+                services.Remove(desc);
+            }
+            while (true)
+            {
+                var desc = services.FirstOrDefault(d => d.ServiceType == typeof(PPSNR.Server.Services.IInviteEmailTemplate));
+                if (desc == null) break;
+                services.Remove(desc);
+            }
+            services.AddSingleton<PPSNR.Server.Services.IEmailService, PPSNR.Tests.TestEmailService>();
+            services.AddSingleton<PPSNR.Server.Services.IInviteEmailTemplate, TestInviteEmailTemplate>();
         });
 
         base.ConfigureWebHost(builder);

@@ -1,6 +1,5 @@
 ﻿using System.Net;
 using System.Net.Mail;
-using Microsoft.Extensions.Configuration;
 
 namespace PPSNR.Server.Services;
 
@@ -31,54 +30,60 @@ public sealed class SmtpEmailService : IEmailService
     private readonly IConfiguration _config;
     private readonly ILogger<SmtpEmailService> _logger;
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="config"></param>
+    /// <param name="logger"></param>
     public SmtpEmailService(IConfiguration config, ILogger<SmtpEmailService> logger)
     {
         _config = config;
         _logger = logger;
     }
 
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="toEmail"></param>
+    /// <param name="subject"></param>
+    /// <param name="htmlBody"></param>
+    /// <param name="textBody"></param>
+    /// <param name="ct"></param>
+    /// <exception cref="InvalidOperationException"></exception>
     public async Task SendAsync(string toEmail, string subject, string htmlBody, string? textBody = null, CancellationToken ct = default)
     {
         var host = Get("EMAIL_HOST", "Email:Host");
         var portStr = Get("EMAIL_PORT", "Email:Port");
         var user = Get("EMAIL_USERNAME", "Email:Username");
         var pass = Get("EMAIL_PASSWORD", "Email:Password");
-        var from = Get("EMAIL_FROM", "Email:From");
+        var from = Get("EMAIL_USERNAME", "Email:Username");
         var fromName = Get("EMAIL_FROM_NAME", "Email:FromName");
-        var enableSslStr = Get("EMAIL_ENABLE_SSL", "Email:EnableSsl");
 
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(from))
         {
             throw new InvalidOperationException("Email service is not configured. Please set EMAIL_HOST and EMAIL_FROM in .env or configuration.");
         }
 
-        var port = 25;
+        var port = 587;
         if (!string.IsNullOrWhiteSpace(portStr) && int.TryParse(portStr, out var p)) port = p;
-        var enableSsl = true;
-        if (!string.IsNullOrWhiteSpace(enableSslStr))
-        {
-            enableSsl = string.Equals(enableSslStr, "1") || string.Equals(enableSslStr, "true", StringComparison.OrdinalIgnoreCase);
-        }
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = enableSsl,
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-            UseDefaultCredentials = false,
-        };
+        using var client = new SmtpClient(host, port);
+
+        client.EnableSsl = true;
+        client.DeliveryMethod = SmtpDeliveryMethod.Network;
+        client.UseDefaultCredentials = false;
 
         if (!string.IsNullOrWhiteSpace(user))
         {
             client.Credentials = new NetworkCredential(user, pass);
         }
 
-        using var msg = new MailMessage
-        {
-            From = new MailAddress(from, string.IsNullOrWhiteSpace(fromName) ? from : fromName),
-            Subject = subject,
-            Body = string.IsNullOrEmpty(textBody) ? htmlBody : textBody,
-            IsBodyHtml = string.IsNullOrEmpty(textBody) // If we have separate text, we attach HTML as alternate view below
-        };
+        using var msg = new MailMessage();
+
+        msg.From = new MailAddress(from, string.IsNullOrWhiteSpace(fromName) ? from : fromName);
+        msg.Subject = subject;
+        msg.Body = string.IsNullOrEmpty(textBody) ? htmlBody : textBody;
+        msg.IsBodyHtml = string.IsNullOrEmpty(textBody); // If we have separate text, we attach HTML as alternate view below
         msg.To.Add(new MailAddress(toEmail));
 
         if (!string.IsNullOrEmpty(textBody))

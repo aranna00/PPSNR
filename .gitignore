@@ -8,3 +8,4 @@ PPSNR.Server/appsettings.Development.json
 **/.vs/*
 .idea/.idea.PPSNR/Docker/
 .junie
+.github

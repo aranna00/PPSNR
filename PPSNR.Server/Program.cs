@@ -15,14 +15,37 @@ using IPNetwork = System.Net.IPNetwork;
 var builder = WebApplication.CreateBuilder(args);
 
 // Load .env file (simple KEY=VALUE parser) so developers can toggle features locally
-var envFile = Path.Combine(AppContext.BaseDirectory, ".env");
-if (!File.Exists(envFile))
+string? FindEnvFile()
 {
-    // also try repository root
-    envFile = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    var candidates = new List<string>();
+    var starts = new[]
+    {
+        AppContext.BaseDirectory,
+        builder.Environment.ContentRootPath,
+        Directory.GetCurrentDirectory()
+    };
+    foreach (var start in starts.Where(s => !string.IsNullOrWhiteSpace(s)))
+    {
+        try
+        {
+            var dir = new DirectoryInfo(start!);
+            for (var i = 0; i < 6 && dir != null; i++)
+            {
+                var path = Path.Combine(dir.FullName, ".env");
+                candidates.Add(path);
+                dir = dir.Parent;
+            }
+        }
+        catch { }
+    }
+    return candidates.FirstOrDefault(File.Exists);
 }
-if (File.Exists(envFile))
+
+var envFile = FindEnvFile();
+if (!string.IsNullOrEmpty(envFile) && File.Exists(envFile))
 {
+    // Parse .env and set both process env vars and Configuration provider values
+    var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     foreach (var line in File.ReadAllLines(envFile))
     {
         var trimmed = line.Trim();
@@ -32,12 +55,16 @@ if (File.Exists(envFile))
         var key = trimmed.Substring(0, idx).Trim();
         var value = trimmed.Substring(idx + 1).Trim();
         // remove optional quotes
-        if ((value.StartsWith('\"') && value.EndsWith('\"')) || (value.StartsWith('\'') && value.EndsWith('\'')))
+        if ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\'')))
         {
             value = value.Substring(1, value.Length - 2);
         }
         Environment.SetEnvironmentVariable(key, value);
+        dict[key] = value;
     }
+    // Make sure newly set variables are visible via IConfiguration in this process
+    builder.Configuration.AddInMemoryCollection(dict);
+    builder.Configuration.AddEnvironmentVariables();
 }
 
 // Configuration
@@ -125,9 +152,10 @@ if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twi
         });
 }
 
-var connectionString = builder.Configuration.GetConnectionString
-                           ("DefaultConnection")
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+connectionString = "Host=aranserver.local;Port=5432;Database=ppsnr;Username=ppsnr;Password=ppsnr";
 
 // Register a DbContextFactory so Razor components/pages can inject
 // IDbContextFactory<ApplicationDbContext> (used by Pages/Pair/Index.razor).

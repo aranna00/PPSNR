@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PPSNR.Server.Data;
+using PPSNR.Server.Services;
 
 namespace PPSNR.Server.Controllers;
 
@@ -13,10 +14,12 @@ namespace PPSNR.Server.Controllers;
 public sealed class InviteController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
+    private readonly LayoutService _layoutService;
 
-    public InviteController(ApplicationDbContext db)
+    public InviteController(ApplicationDbContext db, LayoutService layoutService)
     {
         _db = db;
+        _layoutService = layoutService;
     }
 
     [HttpGet("accept/{pairId:guid}/{token:guid}")]
@@ -49,8 +52,15 @@ public sealed class InviteController : ControllerBase
         }
 
         // Bind the partner to the current user
+        var wasEmpty = string.IsNullOrEmpty(pair.PartnerUserId);
         pair.PartnerUserId = userId;
         await _db.SaveChangesAsync();
+
+        // Create partner slots on empty layouts only after acceptance (idempotent)
+        if (wasEmpty)
+        {
+            await _layoutService.EnsurePartnerSlotsCreatedAsync(pair.Id);
+        }
 
         // Redirect to the partner edit page using the same token
         return Redirect($"/{pairId}/partner-edit/{token}");

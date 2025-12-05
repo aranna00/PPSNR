@@ -32,6 +32,57 @@ public class PairPagesAndAuthTests
         });
     }
 
+    [Test]
+    public async Task Pairs_Page_Renders_For_New_Pair_With_Invite_Input_When_No_Partner()
+    {
+        // Arrange: create a new pair via admin API as the authenticated test user
+        var (token, header) = await GetAntiforgeryAsync(_client);
+        var createReq = new HttpRequestMessage(HttpMethod.Post, "/api/admin/pairs");
+        createReq.Headers.Add(header, token);
+        createReq.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var createResp = await _client.SendAsync(createReq);
+        createResp.EnsureSuccessStatusCode();
+
+        // Act: load pairs page (should render owner's links and invite UI, not crash)
+        var resp = await _client.GetAsync("/pairs");
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var html = await resp.Content.ReadAsStringAsync();
+
+        using (new AssertionScope())
+        {
+            html.Should().Contain("Streamer Pairs");
+            html.Should().Contain("Send Invite");
+            html.Should().Contain("partner@example.com");
+        }
+    }
+
+    [Test]
+    public async Task Pairs_Page_Renders_With_Multiple_Pairs_Without_Crashing()
+    {
+        var (token, header) = await GetAntiforgeryAsync(_client);
+
+        for (int i = 0; i < 2; i++)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/admin/pairs");
+            req.Headers.Add(header, token);
+            req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            var resp = await _client.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+        }
+
+        var page = await _client.GetAsync("/pairs");
+        page.StatusCode.Should().Be(HttpStatusCode.OK);
+        var html = await page.Content.ReadAsStringAsync();
+
+        using (new AssertionScope())
+        {
+            html.Should().Contain("Streamer Pairs");
+            html.Should().Contain("Send Invite");
+            html.Should().Contain("partner@example.com");
+            html.Should().Contain("Count: 2");
+        }
+    }
+
     [TearDown]
     public void TearDown()
     {
@@ -148,7 +199,7 @@ public class PairPagesAndAuthTests
         new[] { HttpStatusCode.Forbidden, HttpStatusCode.BadRequest }.Should().Contain(resp2.StatusCode);
     }
 
-    private static async Task<(string token, string headerName)> GetAntiforgeryAsync(HttpClient client)
+    public static async Task<(string token, string headerName)> GetAntiforgeryAsync(HttpClient client)
     {
         var resp = await client.GetAsync("/api/antiforgery/token");
         resp.EnsureSuccessStatusCode();

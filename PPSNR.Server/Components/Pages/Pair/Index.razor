@@ -27,38 +27,63 @@
 <ul>
     @foreach (var p in _pairs)
     {
+        var isOwner = string.Equals(p.OwnerUserId, _userId, StringComparison.Ordinal);
+        var isPartner = string.Equals(p.PartnerUserId, _userId, StringComparison.Ordinal);
         <li>
             <b>@p.Name</b>
             @if (_links.TryGetValue(p.Id, out var link))
             {
-                <div>
-                    Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">browser source for: @p.Owner?.UserName</a>
-                </div>
-                <div>
-                    Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">Edit @p.Owner?.UserName's layout</a>
-                </div>
-                <div>
-                    Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">Select pokemon</a>
-                </div>
-                <div>
-                    Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">browser source for: @p.Partner?.UserName</a>
-                </div>
-                <div>
-                    Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">Edit @p.Partner?.UserName's layout</a>
-                </div>
-                <div>
-                    Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">Select pokemon</a>
-                </div>
-                <div style="margin-top:6px;">
-                    <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
-                    <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
-                </div>
+                @if (isOwner)
+                {
+                    <div>
+                        Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">browser source for: @p.Owner?.UserName</a>
+                    </div>
+                    <div>
+                        Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">Edit @p.Owner?.UserName's layout</a>
+                    </div>
+                    <div>
+                        Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">Select pokemon</a>
+                    </div>
+                }
+                else if (isPartner)
+                {
+                    <div>
+                        Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">browser source for: @p.Partner?.UserName</a>
+                    </div>
+                    <div>
+                        Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">Edit @p.Partner?.UserName's layout</a>
+                    </div>
+                    <div>
+                        Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">Select pokemon</a>
+                    </div>
+                }
+
+                @if (isOwner)
+                {
+                    <div style="margin-top:6px;">
+                        <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
+                        <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                    </div>
+                }
             }
             else
             {
-                <div style="margin-top:6px;">
-                    <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
-                    <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                @if (isOwner)
+                {
+                    <div style="margin-top:6px;">
+                        <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
+                        <button style="margin-left:6px;" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
+                    </div>
+                }
+            }
+
+            @if (isOwner && string.IsNullOrEmpty(p.PartnerUserId))
+            {
+                <div style="margin-top:8px;">
+                    <input placeholder="partner@example.com"
+                           value="@GetInviteEmail(p.Id)"
+                           @oninput="(ChangeEventArgs e) => SetInviteEmail(p.Id, e.Value?.ToString() ?? string.Empty)" />
+                    <button style="margin-left:6px;" @onclick="() => InvitePartner(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Send Invite")</button>
                 </div>
             }
         </li>
@@ -72,6 +97,18 @@
     private string? _status;
     private bool _statusIsError;
     private Guid _lastCreatedId;
+    private string? _userId;
+    private Dictionary<Guid, string> _inviteEmails = new();
+    
+    private string GetInviteEmail(Guid id)
+    {
+        return _inviteEmails.TryGetValue(id, out var value) ? value : string.Empty;
+    }
+
+    private void SetInviteEmail(Guid id, string email)
+    {
+        _inviteEmails[id] = email;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -87,19 +124,19 @@
 
             // Determine current user
             var state = await Auth.GetAuthenticationStateAsync();
-            var userId = state.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            _userId = state.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (string.IsNullOrEmpty(userId))
+            if (string.IsNullOrEmpty(_userId))
             {
                 _pairs = new List<StreamerPair>();
                 _links.Clear();
                 return;
             }
 
-            // Only show pairs owned by the current user
+            // Only show pairs where the current user participates (owner or partner)
             _pairs = await db.Pairs
                 .AsNoTracking()
-                .Where(p => p.OwnerUserId == userId)
+                .Where(p => p.OwnerUserId == _userId || p.PartnerUserId == _userId)
                 .OrderByDescending(p => p.CreatedAt)
                 .ToListAsync();
             _links.Clear();
@@ -113,6 +150,29 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    private async Task InvitePartner(Guid id)
+    {
+        if (!_inviteEmails.TryGetValue(id, out var email) || string.IsNullOrWhiteSpace(email)) return;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new { email });
+            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/pairs/{id}/invite", "POST", payload);
+            _status = $"Invite sent to {email}";
+        }
+        catch (Exception ex)
+        {
+            _statusIsError = true;
+            _status = $"Invite failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
         }
     }
 

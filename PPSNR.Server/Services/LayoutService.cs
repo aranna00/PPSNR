@@ -234,4 +234,72 @@ public class LayoutService
 
         return changed;
     }
+
+    /// <summary>
+    /// Ensures that partner-profile slots exist for all layouts of the specified pair.
+    /// Creates missing partner slots by mirroring existing owner slots per layout.
+    /// Idempotent: if partner slots already exist, no duplicates are created.
+    /// </summary>
+    public async Task<int> EnsurePartnerSlotsCreatedAsync(Guid pairId, CancellationToken ct = default)
+    {
+        var layouts = await _db.Layouts.Where(l => l.PairId == pairId).ToListAsync(ct);
+        if (layouts.Count == 0) return 0;
+
+        int created = 0;
+        foreach (var layout in layouts)
+        {
+            var slots = await _db.Slots.Where(s => s.LayoutId == layout.Id).ToListAsync(ct);
+            if (slots.Count == 0) continue;
+
+            // Group by (SlotType, Index) and create a partner-profile slot when missing
+            var groups = slots.GroupBy(s => new { s.SlotType, s.Index })
+                              .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var kv in groups)
+            {
+                var list = kv.Value;
+                var hasPartner = list.Any(s => s.Profile == SlotProfile.Partner);
+                if (hasPartner) continue;
+
+                var owner = list.FirstOrDefault(s => s.Profile == SlotProfile.Owner) ?? list.First();
+                var partnerSlot = new Slot
+                {
+                    LayoutId = layout.Id,
+                    SlotType = owner.SlotType,
+                    Index = owner.Index,
+                    Profile = SlotProfile.Partner,
+                    Visible = owner.Visible,
+                    ImageUrl = owner.ImageUrl,
+                    X = owner.X,
+                    Y = owner.Y,
+                    ZIndex = owner.ZIndex,
+                    Width = owner.Width,
+                    Height = owner.Height
+                };
+                _db.Slots.Add(partnerSlot);
+                created++;
+
+                try
+                {
+                    // Seed default placements for both profiles for the new slot
+                    var plOwner = new SlotPlacement { SlotId = partnerSlot.Id, Profile = SlotProfile.Owner };
+                    var plPartner = new SlotPlacement { SlotId = partnerSlot.Id, Profile = SlotProfile.Partner };
+                    ApplyDefaultPlacementFromSlot(partnerSlot, plOwner);
+                    ApplyDefaultPlacementFromSlot(partnerSlot, plPartner);
+                    _db.SlotPlacements.Add(plOwner);
+                    _db.SlotPlacements.Add(plPartner);
+                }
+                catch
+                {
+                    // Non-fatal
+                }
+            }
+        }
+
+        if (created > 0)
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        return created;
+    }
 }
