@@ -41,10 +41,9 @@ public sealed class SmtpEmailService : IEmailService
         var portStr = Get("EMAIL_PORT", "Email:Port");
         var user = Get("EMAIL_USERNAME", "Email:Username");
         var pass = Get("EMAIL_PASSWORD", "Email:Password");
-        var from = Get("EMAIL_USERNAME", "Email:Username");
         var fromName = Get("EMAIL_FROM_NAME", "Email:FromName");
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(from))
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(user))
         {
             throw new InvalidOperationException("Email service is not configured. Please set EMAIL_HOST and EMAIL_FROM in .env or configuration.");
         }
@@ -65,7 +64,7 @@ public sealed class SmtpEmailService : IEmailService
 
         using var msg = new MailMessage();
 
-        msg.From = new MailAddress(from, string.IsNullOrWhiteSpace(fromName) ? from : fromName);
+        msg.From = new MailAddress(user, string.IsNullOrWhiteSpace(fromName) ? user : fromName);
         msg.Subject = subject;
         msg.Body = string.IsNullOrEmpty(textBody) ? htmlBody : textBody;
         msg.IsBodyHtml = string.IsNullOrEmpty(textBody); // If we have separate text, we attach HTML as alternate view below

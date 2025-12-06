@@ -18,14 +18,44 @@ public class LayoutController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly IInviteEmailTemplate _inviteTemplate;
     private readonly IConfiguration _config;
+    private readonly ILogger<LayoutController> _logger;
 
-    public LayoutController(ApplicationDbContext db, LayoutService layoutService, IEmailService emailService, IInviteEmailTemplate inviteTemplate, IConfiguration config)
+    public LayoutController(ApplicationDbContext db, LayoutService layoutService, IEmailService emailService, IInviteEmailTemplate inviteTemplate, IConfiguration config, ILogger<LayoutController> logger)
     {
         _db = db;
         _layoutService = layoutService;
         _emailService = emailService;
         _inviteTemplate = inviteTemplate;
         _config = config;
+        _logger = logger;
+    }
+
+    private string GenerateErrorCode(Exception ex)
+    {
+        return ex switch
+        {
+            InvalidOperationException => "EMAIL_CONFIG_MISSING",
+            System.Net.Mail.SmtpFailedRecipientsException => "EMAIL_MULTIPLE_RECIPIENTS_FAILED",
+            System.Net.Mail.SmtpFailedRecipientException => "EMAIL_INVALID_RECIPIENT",
+            System.Net.Mail.SmtpException smtpEx => smtpEx.StatusCode switch
+            {
+                System.Net.Mail.SmtpStatusCode.ServiceNotAvailable => "EMAIL_SERVICE_UNAVAILABLE",
+                System.Net.Mail.SmtpStatusCode.MailboxBusy => "EMAIL_MAILBOX_BUSY",
+                System.Net.Mail.SmtpStatusCode.MailboxUnavailable => "EMAIL_MAILBOX_UNAVAILABLE",
+                System.Net.Mail.SmtpStatusCode.CommandNotImplemented => "EMAIL_COMMAND_NOT_IMPLEMENTED",
+                System.Net.Mail.SmtpStatusCode.BadCommandSequence => "EMAIL_BAD_SEQUENCE",
+                System.Net.Mail.SmtpStatusCode.UserNotLocalTryAlternatePath => "EMAIL_USER_NOT_LOCAL",
+                System.Net.Mail.SmtpStatusCode.ExceededStorageAllocation => "EMAIL_QUOTA_EXCEEDED",
+                System.Net.Mail.SmtpStatusCode.MailboxNameNotAllowed => "EMAIL_INVALID_MAILBOX",
+                System.Net.Mail.SmtpStatusCode.TransactionFailed => "EMAIL_AUTH_FAILED",
+                System.Net.Mail.SmtpStatusCode.GeneralFailure => "EMAIL_GENERAL_FAILURE",
+                _ => "EMAIL_SMTP_ERROR",
+            },
+            System.Net.Sockets.SocketException => "EMAIL_NETWORK_ERROR",
+            System.IO.IOException => "EMAIL_IO_ERROR",
+            OperationCanceledException => "EMAIL_TIMEOUT",
+            _ => "EMAIL_UNKNOWN_ERROR",
+        };
     }
 
     [HttpPost("pairs/{pairId:guid}/links")]
@@ -84,8 +114,18 @@ public class LayoutController : ControllerBase
 
         var ownerName = User.Identity?.Name ?? "Owner";
         var (subject, html, text) = _inviteTemplate.Build(ownerName, pair.Name, acceptUrl);
-        await _emailService.SendAsync(req.Email!, subject, html, text);
-        return Ok(new { invited = req.Email });
+
+        try
+        {
+            await _emailService.SendAsync(req.Email, subject, html, text);
+            return Ok(new { invited = req.Email, });
+        }
+        catch (Exception ex)
+        {
+            var errorCode = GenerateErrorCode(ex);
+            _logger.LogError(ex, "Email send failed for invite to {Email}. Error code: {ErrorCode}", req.Email, errorCode);
+            return BadRequest(new { error = "Failed to send invite email", errorCode });
+        }
     }
 
     // Endpoint to issue and return an antiforgery request token and set the antiforgery cookie in the browser.
