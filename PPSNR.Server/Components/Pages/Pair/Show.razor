@@ -1,0 +1,307 @@
+﻿@page "/pairs/{id}"
+@attribute [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
+@using PPSNR.Server.Data.Entities
+@using System.Security.Claims
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider Auth
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@rendermode InteractiveServer
+
+@if (_pair == null)
+{
+    <div class="alert alert-info">Loading pair details...</div>
+}
+else
+{
+    <div class="mb-2">
+        <a href="/pairs" class="btn btn-secondary">Back to Pairs</a>
+    </div>
+
+    <h1>@_pair.Name</h1>
+
+    <div class="mb-3">
+        <p>
+            <strong>Owner:</strong> @(_pair.Owner?.UserName ?? "Not assigned")
+        </p>
+        <p>
+            <strong>Partner:</strong> @(_pair.Partner?.UserName ?? "Not assigned")
+        </p>
+        <p>
+            <strong>Your Role:</strong> @GetUserRole()
+        </p>
+        <p>
+            <strong>Created:</strong> @_pair.CreatedAt.ToString("g")
+        </p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_status))
+    {
+        <div class="@(_statusIsError ? "alert alert-danger" : "alert alert-success")">
+            @_status
+        </div>
+    }
+
+    <div class="mb-3">
+        <button @onclick="Reload" disabled="@_busy" class="btn btn-secondary">@(_busy ? "Refreshing..." : "Refresh")</button>
+    </div>
+
+    @if (_isOwner)
+    {
+        <h3>Owner Links</h3>
+        @if (_links != null && _links.OwnerViewToken != Guid.Empty)
+        {
+            <div class="mb-2">
+                <p>
+                    <strong>View Link:</strong> <a href="/@_pair.Id/view/@_links.OwnerViewToken" target="_blank">browser source for: @_pair.Owner?.UserName</a>
+                </p>
+                <p>
+                    <strong>Edit Link:</strong> <a href="/@_pair.Id/edit/@_links.EditToken" target="_blank">Edit @_pair.Owner?.UserName's layout</a>
+                </p>
+                <p>
+                    <strong>Select Link:</strong> <a href="/@_pair.Id/select/@_links.EditToken" target="_blank">Select pokemon</a>
+                </p>
+            </div>
+            <div class="mb-3">
+                <button @onclick="GenerateLinks" disabled="@_busy" class="btn btn-primary">@(_busy ? "Working..." : "Regenerate Links")</button>
+            </div>
+        }
+        else
+        {
+            <div class="mb-3">
+                <p class="text-muted">Links not yet generated</p>
+                <button @onclick="GenerateLinks" disabled="@_busy" class="btn btn-primary">@(_busy ? "Working..." : "Generate Links")</button>
+            </div>
+        }
+    }
+
+    @if (_isPartner)
+    {
+        <h3>Partner Links</h3>
+        @if (_links != null && _links.ViewToken != Guid.Empty)
+        {
+            <div class="mb-2">
+                <p>
+                    <strong>View Link:</strong> <a href="/@_pair.Id/view/@_links.ViewToken" target="_blank">browser source for: @_pair.Partner?.UserName</a>
+                </p>
+                <p>
+                    <strong>Edit Link:</strong> <a href="/@_pair.Id/partner-edit/@_links.PartnerEditToken" target="_blank">Edit @_pair.Partner?.UserName's layout</a>
+                </p>
+                <p>
+                    <strong>Select Link:</strong> <a href="/@_pair.Id/select/@_links.PartnerEditToken" target="_blank">Select pokemon</a>
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="text-muted">Links not yet generated. Contact the pair owner to generate them.</div>
+        }
+    }
+
+    @if (_isOwner && string.IsNullOrEmpty(_pair.PartnerUserId))
+    {
+        <h3>Invite Partner</h3>
+        <div class="mb-3">
+            <div class="mb-2">
+                <input type="email"
+                       class="form-control"
+                       placeholder="partner@example.com"
+                       value="@_inviteEmail"
+                       @oninput="(ChangeEventArgs e) => _inviteEmail = e.Value?.ToString() ?? string.Empty"
+                       style="max-width: 300px;" />
+            </div>
+            <button @onclick="InvitePartner" disabled="@_busy" class="btn btn-primary">@(_busy ? "Sending..." : "Send Invite")</button>
+        </div>
+    }
+
+    @if (_isOwner)
+    {
+        <hr />
+        <h3>Danger Zone</h3>
+        <button @onclick="DeletePair" disabled="@_busy" class="btn btn-danger">@(_busy ? "Deleting..." : "Delete Pair")</button>
+    }
+}
+
+@code {
+    [Parameter]
+    public string? Id { get; set; }
+
+    private StreamerPair? _pair;
+    private PairLink? _links;
+    private bool _busy;
+    private string? _status;
+    private bool _statusIsError;
+    private string? _userId;
+    private string _inviteEmail = string.Empty;
+    private bool _isOwner;
+    private bool _isPartner;
+
+    private string GetUserRole()
+    {
+        if (_isOwner && _isPartner) return "Owner & Partner";
+        if (_isOwner) return "Owner";
+        if (_isPartner) return "Partner";
+        return "Viewer";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPair();
+    }
+
+    private async Task LoadPair()
+    {
+        try
+        {
+            if (!Guid.TryParse(Id, out var pairId))
+            {
+                Nav.NavigateTo("/pairs");
+                return;
+            }
+
+            _busy = true;
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // Determine current user
+            var state = await Auth.GetAuthenticationStateAsync();
+            _userId = state.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(_userId))
+            {
+                Nav.NavigateTo("/");
+                return;
+            }
+
+            // Load pair with related entities
+            _pair = await db.Pairs
+                .AsNoTracking()
+                .Include(p => p.Owner)
+                .Include(p => p.Partner)
+                .FirstOrDefaultAsync(p => p.Id == pairId);
+
+            if (_pair == null)
+            {
+                Nav.NavigateTo("/pairs");
+                return;
+            }
+
+            // Determine user's role
+            _isOwner = string.Equals(_pair.OwnerUserId, _userId, StringComparison.Ordinal);
+            _isPartner = string.Equals(_pair.PartnerUserId, _userId, StringComparison.Ordinal);
+
+            // Check if user has access to this pair
+            if (!_isOwner && !_isPartner)
+            {
+                Nav.NavigateTo("/pairs");
+                return;
+            }
+
+            // Load links if they exist
+            _links = await db.PairLinks.AsNoTracking().FirstOrDefaultAsync(l => l.PairId == pairId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Reload()
+    {
+        _status = null;
+        _statusIsError = false;
+        await LoadPair();
+    }
+
+    private async Task InvitePartner()
+    {
+        if (string.IsNullOrWhiteSpace(_inviteEmail)) return;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new { email = _inviteEmail });
+            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/pairs/{_pair!.Id}/invite", "POST", payload);
+            _status = $"Invite sent to {_inviteEmail}";
+            _inviteEmail = string.Empty;
+            await LoadPair();
+        }
+        catch (Exception ex)
+        {
+            _statusIsError = true;
+            _status = $"Invite failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GenerateLinks()
+    {
+        _status = null;
+        _statusIsError = false;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", $"api/pairs/{_pair!.Id}/links");
+            var dto = System.Text.Json.JsonDocument.Parse(dtoText);
+            var viewToken = dto.RootElement.GetProperty("viewToken").GetGuid();
+            var editToken = dto.RootElement.GetProperty("editToken").GetGuid();
+            var ownerViewToken = dto.RootElement.GetProperty("ownerViewToken").GetGuid();
+            var partnerEditToken = dto.RootElement.GetProperty("partnerEditToken").GetGuid();
+            _links = new PairLink
+            {
+                PairId = _pair.Id,
+                ViewToken = viewToken,
+                EditToken = editToken,
+                OwnerViewToken = ownerViewToken,
+                PartnerEditToken = partnerEditToken
+            };
+            _status = "Links generated successfully";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _statusIsError = true;
+            _status = $"Failed to generate links: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeletePair()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this pair?"))
+        {
+            return;
+        }
+
+        _status = null;
+        _statusIsError = false;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/admin/pairs/{_pair!.Id}", "DELETE");
+            _status = "Pair deleted successfully";
+            await Task.Delay(1000);
+            Nav.NavigateTo("/pairs");
+        }
+        catch (Exception ex)
+        {
+            _statusIsError = true;
+            _status = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+}
+

@@ -10,105 +10,126 @@
 
 <h1>Streamer Pairs</h1>
 
-<div class="mb-2">
+<div class="mb-3">
     <button @onclick="CreateSamplePair" disabled="@_busy" class="btn btn-primary">@(_busy ? "Creating..." : "Create Sample Pair")</button>
     @if (!string.IsNullOrWhiteSpace(_status))
     {
-        <span class="@(_statusIsError ? "text-danger" : "text-success") ms-10px">@_status</span>
+        <div class="@(_statusIsError ? "alert alert-danger" : "alert alert-success") mt-2">
+            @_status
+        </div>
     }
-    <button class="btn btn-secondary ms-10px" @onclick="Reload" disabled="@_busy">Reload</button>
-    <span class="ms-10px text-muted">Count: @_pairs.Count</span>
-    @if (_lastCreatedId != Guid.Empty)
-    {
-        <span class="ms-10px text-muted">Last created: @_lastCreatedId</span>
-    }
+    <button class="btn btn-secondary ms-2" @onclick="Reload" disabled="@_busy">Reload</button>
+    <span class="ms-2 text-muted">Total: @_allPairs.Count | Filtered: @_filteredPairs.Count</span>
 </div>
 
-<ul>
-    @foreach (var p in _pairs)
-    {
-        var isOwner = string.Equals(p.OwnerUserId, _userId, StringComparison.Ordinal);
-        var isPartner = string.Equals(p.PartnerUserId, _userId, StringComparison.Ordinal);
-        <li>
-            <b>@p.Name</b>
-            @if (_links.TryGetValue(p.Id, out var link))
-            {
-                @if (isOwner)
-                {
-                    <div>
-                        Owner view link: <a href="/@p.Id/view/@link.OwnerViewToken" target="_blank">browser source for: @p.Owner?.UserName</a>
-                    </div>
-                    <div>
-                        Owner edit link: <a href="/@p.Id/edit/@link.EditToken" target="_blank">Edit @p.Owner?.UserName's layout</a>
-                    </div>
-                    <div>
-                        Owner select link: <a href="/@p.Id/select/@link.EditToken" target="_blank">Select pokemon</a>
-                    </div>
-                }
-                else if (isPartner)
-                {
-                    <div>
-                        Partner view link: <a href="/@p.Id/view/@link.ViewToken" target="_blank">browser source for: @p.Partner?.UserName</a>
-                    </div>
-                    <div>
-                        Partner edit link: <a href="/@p.Id/partner-edit/@link.PartnerEditToken" target="_blank">Edit @p.Partner?.UserName's layout</a>
-                    </div>
-                    <div>
-                        Partner select link: <a href="/@p.Id/select/@link.PartnerEditToken" target="_blank">Select pokemon</a>
-                    </div>
-                }
+<div class="card mb-3">
+    <div class="card-header">
+        <h5>Filters</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <label class="form-label">Pair Name</label>
+                <input type="text"
+                       class="form-control"
+                       placeholder="Search pair name..."
+                       value="@_filterPairName"
+                       @oninput="(ChangeEventArgs e) => OnFilterChanged(() => _filterPairName = e.Value?.ToString() ?? string.Empty)" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Owner Name</label>
+                <input type="text"
+                       class="form-control"
+                       placeholder="Search owner..."
+                       value="@_filterOwnerName"
+                       @oninput="(ChangeEventArgs e) => OnFilterChanged(() => _filterOwnerName = e.Value?.ToString() ?? string.Empty)" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Partner Name</label>
+                <input type="text"
+                       class="form-control"
+                       placeholder="Search partner..."
+                       value="@_filterPartnerName"
+                       @oninput="(ChangeEventArgs e) => OnFilterChanged(() => _filterPartnerName = e.Value?.ToString() ?? string.Empty)" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Your Role</label>
+                <select class="form-control"
+                        value="@_filterRole"
+                        @onchange="(ChangeEventArgs e) => OnFilterChanged(() => _filterRole = e.Value?.ToString() ?? string.Empty)">
+                    <option value="">All Roles</option>
+                    <option value="owner">Owner</option>
+                    <option value="partner">Partner</option>
+                    <option value="both">Owner & Partner</option>
+                </select>
+            </div>
+        </div>
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ClearFilters">Clear Filters</button>
+        </div>
+    </div>
+</div>
 
-                @if (isOwner)
+@if (_filteredPairs.Count == 0)
+{
+    <div class="alert alert-info">
+        @if (_allPairs.Count == 0)
+        {
+            <p>No pairs found. <button class="btn btn-sm btn-primary" @onclick="CreateSamplePair" disabled="@_busy">Create your first pair</button></p>
+        }
+        else
+        {
+            <p>No pairs match the current filters.</p>
+        }
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Pair Name</th>
+                    <th>Owner</th>
+                    <th>Partner</th>
+                    <th>Your Role</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _filteredPairs)
                 {
-                    <div class="mt-6px">
-                        <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Regenerate Links")</button>
-                        <button class="ms-6px" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
-                    </div>
+                    var userRole = GetUserRole(p);
+                    <tr>
+                        <td>
+                            <strong>@p.Name</strong>
+                        </td>
+                        <td>@(p.Owner?.UserName ?? "Unassigned")</td>
+                        <td>@(p.Partner?.UserName ?? "Unassigned")</td>
+                        <td>
+                            <span class="badge bg-info">@userRole</span>
+                        </td>
+                        <td>
+                            <a href="/pairs/@p.Id" class="btn btn-sm btn-primary">View Details</a>
+                        </td>
+                    </tr>
                 }
-            }
-            else
-            {
-                @if (isOwner)
-                {
-                    <div class="mt-6px">
-                        <button @onclick="() => GenerateLinks(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Generate Links")</button>
-                        <button class="ms-6px" @onclick="() => DeletePair(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Delete Pair")</button>
-                    </div>
-                }
-            }
-
-            @if (isOwner && string.IsNullOrEmpty(p.PartnerUserId))
-            {
-                <div class="mt-8px">
-                    <input placeholder="partner@example.com"
-                           value="@GetInviteEmail(p.Id)"
-                           @oninput="(ChangeEventArgs e) => SetInviteEmail(p.Id, e.Value?.ToString() ?? string.Empty)" />
-                    <button class="ms-6px" @onclick="() => InvitePartner(p.Id)" disabled="@_busy">@(_busy ? "Working..." : "Send Invite")</button>
-                </div>
-            }
-        </li>
-    }
-</ul>
+            </tbody>
+        </table>
+    </div>
+}
 
 @code {
-    private List<StreamerPair> _pairs = new();
-    private Dictionary<Guid, PairLink> _links = new();
+    private List<StreamerPair> _allPairs = new();
+    private List<StreamerPair> _filteredPairs = new();
     private bool _busy;
     private string? _status;
     private bool _statusIsError;
-    private Guid _lastCreatedId;
     private string? _userId;
-    private Dictionary<Guid, string> _inviteEmails = new();
-    
-    private string GetInviteEmail(Guid id)
-    {
-        return _inviteEmails.TryGetValue(id, out var value) ? value : string.Empty;
-    }
-
-    private void SetInviteEmail(Guid id, string email)
-    {
-        _inviteEmails[id] = email;
-    }
+    private string _filterPairName = string.Empty;
+    private string _filterOwnerName = string.Empty;
+    private string _filterPartnerName = string.Empty;
+    private string _filterRole = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -128,92 +149,101 @@
 
             if (string.IsNullOrEmpty(_userId))
             {
-                _pairs = new List<StreamerPair>();
-                _links.Clear();
+                _allPairs = new List<StreamerPair>();
+                _filteredPairs = new List<StreamerPair>();
                 return;
             }
 
-            // Only show pairs where the current user participates (owner or partner)
-            _pairs = await db.Pairs
+            // Load all pairs where the current user participates (owner or partner)
+            _allPairs = await db.Pairs
                 .AsNoTracking()
+                .Include(p => p.Owner)
+                .Include(p => p.Partner)
                 .Where(p => p.OwnerUserId == _userId || p.PartnerUserId == _userId)
                 .OrderByDescending(p => p.CreatedAt)
                 .ToListAsync();
-            _links.Clear();
-            var pairIds = _pairs.Select(p => p.Id).ToList();
-            var existingLinks = await db.PairLinks.AsNoTracking().Where(l => pairIds.Contains(l.PairId)).ToListAsync();
-            foreach (var l in existingLinks)
+
+            ApplyFilters();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OnFilterChanged(Action updateFilter)
+    {
+        updateFilter();
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        _filteredPairs = _allPairs
+            .Where(p =>
             {
-                _links[l.PairId] = l;
-            }
-        }
-        finally
-        {
-            _busy = false;
-        }
+                // Filter by pair name
+                if (!string.IsNullOrWhiteSpace(_filterPairName) &&
+                    !p.Name.Contains(_filterPairName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                // Filter by owner name
+                if (!string.IsNullOrWhiteSpace(_filterOwnerName) &&
+                    !p.Owner?.UserName?.Contains(_filterOwnerName, StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    return false;
+                }
+
+                // Filter by partner name
+                if (!string.IsNullOrWhiteSpace(_filterPartnerName))
+                {
+                    var partnerMatches = p.Partner?.UserName?.Contains(_filterPartnerName, StringComparison.OrdinalIgnoreCase) == true;
+                    if (!partnerMatches)
+                    {
+                        return false;
+                    }
+                }
+
+                // Filter by user role
+                if (!string.IsNullOrWhiteSpace(_filterRole))
+                {
+                    var isOwner = string.Equals(p.OwnerUserId, _userId, StringComparison.Ordinal);
+                    var isPartner = string.Equals(p.PartnerUserId, _userId, StringComparison.Ordinal);
+
+                    switch (_filterRole)
+                    {
+                        case "owner" when !isOwner:
+                        case "partner" when !isPartner:
+                        case "both" when !(isOwner && isPartner):
+                            return false;
+                    }
+                }
+
+                return true;
+            })
+            .ToList();
     }
 
-    private async Task InvitePartner(Guid id)
+    private void ClearFilters()
     {
-        if (!_inviteEmails.TryGetValue(id, out var email) || string.IsNullOrWhiteSpace(email)) return;
-        _busy = true;
-        StateHasChanged();
-        try
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new { email });
-            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/pairs/{id}/invite", "POST", payload);
-            _status = $"Invite sent to {email}";
-        }
-        catch (Exception ex)
-        {
-            _statusIsError = true;
-            _status = $"Invite failed: {ex.Message}";
-        }
-        finally
-        {
-            _busy = false;
-            StateHasChanged();
-        }
+        _filterPairName = string.Empty;
+        _filterOwnerName = string.Empty;
+        _filterPartnerName = string.Empty;
+        _filterRole = string.Empty;
+        ApplyFilters();
     }
 
-    private async Task GenerateLinks(Guid id)
+    private string GetUserRole(StreamerPair pair)
     {
-        // Perform the POST from the browser so antiforgery cookie and header are included
-        // The JS helper will fetch an antiforgery token/cookie pair and then POST with the header
-        var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", $"api/pairs/{id}/links");
-        var dto = System.Text.Json.JsonDocument.Parse(dtoText);
-        var viewToken = dto.RootElement.GetProperty("viewToken").GetGuid();
-        var editToken = dto.RootElement.GetProperty("editToken").GetGuid();
-        var ownerViewToken = dto.RootElement.GetProperty("ownerViewToken").GetGuid();
-        var partnerEditToken = dto.RootElement.GetProperty("partnerEditToken").GetGuid();
-        _links[id] = new PairLink { PairId = id, ViewToken = viewToken, EditToken = editToken, OwnerViewToken = ownerViewToken, PartnerEditToken = partnerEditToken };
-        StateHasChanged();
-    }
+        var isOwner = string.Equals(pair.OwnerUserId, _userId, StringComparison.Ordinal);
+        var isPartner = string.Equals(pair.PartnerUserId, _userId, StringComparison.Ordinal);
 
-    private async Task DeletePair(Guid id)
-    {
-        _status = null;
-        _statusIsError = false;
-        _busy = true;
-        StateHasChanged();
-        try
-        {
-            // Send DELETE with antiforgery
-            await JS.InvokeVoidAsync("ppsnr.postWithAntiforgery", $"api/admin/pairs/{id}", "DELETE");
-            // Remove from local collections
-            _pairs = _pairs.Where(p => p.Id != id).ToList();
-            _links.Remove(id);
-        }
-        catch (Exception ex)
-        {
-            _statusIsError = true;
-            _status = $"Delete failed: {ex.Message}";
-        }
-        finally
-        {
-            _busy = false;
-            StateHasChanged();
-        }
+        if (isOwner && isPartner) return "Owner & Partner";
+        if (isOwner) return "Owner";
+        if (isPartner) return "Partner";
+        return "Viewer";
     }
 
     private async Task CreateSamplePair()
@@ -224,11 +254,10 @@
         StateHasChanged();
         try
         {
-            // Authenticated creation via API so that antiforgery and authorization are enforced
             var dtoText = await JS.InvokeAsync<string>("ppsnr.postWithAntiforgery", "api/admin/pairs");
             var json = System.Text.Json.JsonDocument.Parse(dtoText);
-            _lastCreatedId = json.RootElement.GetProperty("id").GetGuid();
-            _status = $"Created pair '{_lastCreatedId}'";
+            var pairId = json.RootElement.GetProperty("id").GetGuid();
+            _status = $"Created pair '{pairId}'";
             await Reload();
         }
         catch (Exception ex)
