@@ -6,7 +6,7 @@
 @using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
-@using PPSNR.Server.Data
+@using PPSNR.Server.Services
 
 @inject SignInManager<ApplicationUser> SignInManager
 @inject UserManager<ApplicationUser> UserManager
@@ -15,6 +15,8 @@
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<ExternalLogin> Logger
+@inject ExternalIdentityService ExternalIdentityService
+@inject ExternalIdentityProviderRegistry ExternalIdentityProviderRegistry
 
 <PageTitle>Register</PageTitle>
 
@@ -111,10 +113,51 @@
 
             if (externalLoginInfo != null)
             {
+                // Prefill email and username from external provider if available
+                PrefillFromExternalProvider();
                 return;
             }
 
             RedirectManager.RedirectTo("Account/Login");
+        }
+    }
+
+    private void PrefillFromExternalProvider()
+    {
+        if (externalLoginInfo?.Principal is null)
+            return;
+
+        // Try to get email from claims
+        var email = externalLoginInfo.Principal.FindFirst(ClaimTypes.Email)?.Value;
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            Input.Email = email;
+        }
+
+        // Try to get display name to use as a basis for username
+        var displayName = externalLoginInfo.Principal.FindFirst(ClaimTypes.Name)?.Value;
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            // Use display name as username if it meets requirements
+            if (displayName.Length >= 3 && displayName.Length <= 100)
+            {
+                Input.Username = displayName;
+            }
+            else if (displayName.Length > 100)
+            {
+                // Truncate if too long
+                Input.Username = displayName.Substring(0, 100);
+            }
+        }
+
+        // If we couldn't get a username from display name, try to derive it from email
+        if (string.IsNullOrWhiteSpace(Input.Username) && !string.IsNullOrWhiteSpace(email))
+        {
+            var emailPrefix = email.Split('@')[0];
+            if (emailPrefix.Length >= 3 && emailPrefix.Length <= 100)
+            {
+                Input.Username = emailPrefix;
+            }
         }
     }
 
@@ -184,6 +227,25 @@
                 Logger.LogInformation("User created an account using {Name} provider.", externalLoginInfo.LoginProvider);
 
                 var userId = await UserManager.GetUserIdAsync(user);
+
+                // Also store external identity information for later display
+                try
+                {
+                    var provider = ExternalIdentityProviderRegistry.GetProvider(externalLoginInfo.LoginProvider);
+                    if (provider != null)
+                    {
+                        var providerInfo = await provider.ExtractProviderInfoAsync(HttpContext);
+                        if (providerInfo != null)
+                        {
+                            await ExternalIdentityService.LinkExternalIdentityAsync(userId, externalLoginInfo.LoginProvider, providerInfo);
+                        }
+                    }
+                }
+                catch
+                {
+                    // If storing external identity fails, still allow registration to succeed
+                }
+
                 var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
                 code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
 

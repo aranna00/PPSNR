@@ -50,12 +50,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Use OwnerUserId as the foreign key for Owner navigation
             e.HasOne(p => p.Owner)
                 .WithMany()
-                .HasForeignKey(p => p.OwnerUserId);
+                .HasForeignKey(p => p.OwnerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // Use PartnerUserId as the foreign key for Partner navigation
             e.HasOne(p => p.Partner)
                 .WithMany()
-                .HasForeignKey(p => p.PartnerUserId);
+                .HasForeignKey(p => p.PartnerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             e.HasMany(p => p.Layouts).WithOne(l => l.Pair!).HasForeignKey(l => l.PairId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(p => p.Links).WithOne(l => l.Pair!).HasForeignKey(l => l.PairId).OnDelete(DeleteBehavior.Cascade);

@@ -2,12 +2,15 @@
 
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
-@using PPSNR.Server.Data
+@using PPSNR.Server.Data.Entities
+@using PPSNR.Server.Services
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IUserStore<ApplicationUser> UserStore
 @inject IdentityRedirectManager RedirectManager
+@inject ExternalIdentityService ExternalIdentityService
+@inject ExternalIdentityProviderRegistry ExternalIdentityProviderRegistry
 
 <PageTitle>Manage your external logins</PageTitle>
 
@@ -20,7 +23,17 @@
         @foreach (var login in currentLogins)
         {
             <tr>
-                <td>@login.ProviderDisplayName</td>
+                <td>
+                    @{
+                        var displayText = login.ProviderDisplayName;
+                        var externalIdentity = externalIdentities?.FirstOrDefault(ei => ei.ProviderName == login.LoginProvider);
+                        if (externalIdentity?.ProviderDisplayName != null)
+                        {
+                            displayText = login.ProviderDisplayName + " - " + externalIdentity.ProviderDisplayName;
+                        }
+                    }
+                    @displayText
+                </td>
                 <td>
                     @if (showRemoveButton)
                     {
@@ -68,6 +81,7 @@
     private ApplicationUser? user;
     private IList<UserLoginInfo>? currentLogins;
     private IList<AuthenticationScheme>? otherLogins;
+    private List<ExternalIdentity>? externalIdentities;
     private bool showRemoveButton;
 
     [CascadingParameter]
@@ -94,6 +108,7 @@
         }
 
         currentLogins = await UserManager.GetLoginsAsync(user);
+        externalIdentities = await ExternalIdentityService.GetLinkedIdentitiesAsync(user.Id);
         otherLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync())
                      .Where(auth => currentLogins.All(ul => auth.Name != ul.LoginProvider))
                      .ToList();
@@ -158,6 +173,24 @@
 
         if (result.Succeeded)
         {
+            // Also store external identity information for later display
+            try
+            {
+                var provider = ExternalIdentityProviderRegistry.GetProvider(info.LoginProvider);
+                if (provider != null)
+                {
+                    var providerInfo = await provider.ExtractProviderInfoAsync(HttpContext);
+                    if (providerInfo != null)
+                    {
+                        await ExternalIdentityService.LinkExternalIdentityAsync(userId, info.LoginProvider, providerInfo);
+                    }
+                }
+            }
+            catch
+            {
+                // If storing external identity fails, still allow login to succeed
+            }
+
             // Clear the existing external cookie to ensure a clean login process
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
 
