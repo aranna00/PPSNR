@@ -231,13 +231,13 @@
                 // Also store external identity information for later display
                 try
                 {
-                    var provider = ExternalIdentityProviderRegistry.GetProvider(externalLoginInfo.LoginProvider);
-                    if (provider != null)
+                    if (externalLoginInfo.Principal != null)
                     {
-                        var providerInfo = await provider.ExtractProviderInfoAsync(HttpContext);
+                        var provider = ExternalIdentityProviderRegistry.GetProviderByScheme(externalLoginInfo.LoginProvider);
+                        var providerInfo = provider?.ExtractProviderInfoFromPrincipal(externalLoginInfo.Principal);
                         if (providerInfo != null)
                         {
-                            await ExternalIdentityService.LinkExternalIdentityAsync(userId, externalLoginInfo.LoginProvider, providerInfo);
+                            await ExternalIdentityService.LinkExternalIdentityAsync(userId, provider.ProviderName, providerInfo);
                         }
                     }
                 }

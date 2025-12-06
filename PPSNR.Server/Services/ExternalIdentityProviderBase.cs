@@ -79,5 +79,26 @@ public abstract class ExternalIdentityProviderBase : IExternalIdentityProvider
         // Not all providers include refresh tokens in claims; may need to access other sources
         return null;
     }
-}
 
+    /// <summary>
+    /// Extracts provider information from a ClaimsPrincipal directly.
+    /// </summary>
+    public virtual ExternalProviderInfo? ExtractProviderInfoFromPrincipal(ClaimsPrincipal principal)
+    {
+        if (!principal.Identity?.IsAuthenticated ?? true)
+            return null;
+
+        var providerUserId = ExtractProviderUserId(principal);
+        if (string.IsNullOrEmpty(providerUserId))
+            return null;
+
+        return new ExternalProviderInfo
+        {
+            ProviderUserId = providerUserId,
+            DisplayName = ExtractDisplayName(principal),
+            Email = ExtractEmail(principal),
+            AvatarUrl = ExtractAvatarUrl(principal),
+            RefreshToken = ExtractRefreshToken(principal)
+        };
+    }
+}

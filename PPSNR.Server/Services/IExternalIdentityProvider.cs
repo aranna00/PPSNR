@@ -1,4 +1,6 @@
-﻿namespace PPSNR.Server.Services;
+﻿using System.Security.Claims;
+
+namespace PPSNR.Server.Services;
 
 /// <summary>
 /// Interface for managing external identity provider integrations.
@@ -28,5 +30,12 @@ public interface IExternalIdentityProvider
     /// </summary>
     /// <returns>True if the provider can be used, false otherwise.</returns>
     bool IsConfigured();
-}
 
+    /// <summary>
+    /// Extracts provider information from a ClaimsPrincipal (from ExternalLoginInfo).
+    /// Useful when the HttpContext no longer contains the external login claims.
+    /// </summary>
+    /// <param name="principal">The claims principal from external login.</param>
+    /// <returns>Provider information if successfully extracted, null otherwise.</returns>
+    ExternalProviderInfo? ExtractProviderInfoFromPrincipal(ClaimsPrincipal principal);
+}
