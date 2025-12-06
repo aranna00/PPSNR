@@ -76,6 +76,16 @@ builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<ImagesCacheService>();
 builder.Services.AddScoped<LayoutService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<ExternalIdentityService>();
+
+// Register external identity providers
+builder.Services.AddSingleton<TwitchIdentityProvider>();
+
+// Register the provider registry with all providers
+builder.Services.AddSingleton(sp => new ExternalIdentityProviderRegistry(
+    sp.GetRequiredService<TwitchIdentityProvider>()
+));
+
 // Register IHttpClientFactory for services that depend on it (e.g., ImagesCacheService)
 builder.Services.AddHttpClient();
 

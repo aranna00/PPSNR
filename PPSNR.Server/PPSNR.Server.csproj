@@ -36,7 +36,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Migrations\" />
       <Folder Include="wwwroot\resources\" />
       <Folder Include="wwwroot\source\" />
     </ItemGroup>

@@ -100,7 +100,7 @@ public class InviteFlowTests
         client.DefaultRequestHeaders.Add("X-Test-User", "partner-1");
         var resp = await client.GetAsync($"/invite/accept/{pairId}/{partnerToken}");
         resp.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        resp.Headers.Location!.ToString().Should().Be($"/{pairId}/partner-edit/{partnerToken}");
+        resp.Headers.Location!.ToString().Should().Be($"/pairs/{pairId}");
 
         using var scope2 = _factory.Services.CreateScope();
         var db2 = scope2.ServiceProvider.GetRequiredService<ApplicationDbContext>();

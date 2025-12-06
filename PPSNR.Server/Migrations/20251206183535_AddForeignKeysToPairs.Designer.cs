@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PPSNR.Server.Data;
@@ -11,9 +12,11 @@ using PPSNR.Server.Data;
 namespace PPSNR.Server.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251206183535_AddForeignKeysToPairs")]
+    partial class AddForeignKeysToPairs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -240,59 +243,6 @@ namespace PPSNR.Server.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
-            modelBuilder.Entity("PPSNR.Server.Data.Entities.ExternalIdentity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApplicationUserId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTime?>("LastVerifiedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("LinkedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ProviderAvatarUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("ProviderDisplayName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("ProviderEmail")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("ProviderName")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ProviderUserId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("RefreshToken")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProviderName", "ProviderUserId");
-
-                    b.HasIndex("ApplicationUserId", "ProviderName", "ProviderUserId")
-                        .IsUnique();
-
-                    b.ToTable("ExternalIdentities");
-                });
-
             modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>
                 {
                     b.Property<Guid>("Id")
@@ -461,10 +411,6 @@ namespace PPSNR.Server.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ApplicationUserId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<string>("AvatarUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -474,9 +420,13 @@ namespace PPSNR.Server.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("TwitchId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ApplicationUserId");
+                    b.HasIndex("TwitchId");
 
                     b.ToTable("Streamers");
                 });
@@ -495,9 +445,17 @@ namespace PPSNR.Server.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("OwnerId")
+                        .HasColumnType("text")
+                        .HasColumnName("OwnerUserId");
+
                     b.Property<string>("OwnerUserId")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PartnerId")
+                        .HasColumnType("text")
+                        .HasColumnName("PartnerUserId");
 
                     b.Property<string>("PartnerUserId")
                         .HasMaxLength(128)
@@ -505,11 +463,18 @@ namespace PPSNR.Server.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OwnerUserId");
+                    b.HasIndex("OwnerId");
 
-                    b.HasIndex("PartnerUserId");
+                    b.HasIndex("PartnerId");
 
-                    b.ToTable("Pairs");
+                    b.ToTable("Pairs", t =>
+                        {
+                            t.Property("OwnerUserId")
+                                .HasColumnName("OwnerUserId1");
+
+                            t.Property("PartnerUserId")
+                                .HasColumnName("PartnerUserId1");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -612,17 +577,6 @@ namespace PPSNR.Server.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("PPSNR.Server.Data.Entities.ExternalIdentity", b =>
-                {
-                    b.HasOne("PPSNR.Server.Data.ApplicationUser", "ApplicationUser")
-                        .WithMany("ExternalIdentities")
-                        .HasForeignKey("ApplicationUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ApplicationUser");
-                });
-
             modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>
                 {
                     b.HasOne("PPSNR.Server.Data.Entities.StreamerPair", "Pair")
@@ -675,36 +629,19 @@ namespace PPSNR.Server.Migrations
                     b.Navigation("Slot");
                 });
 
-            modelBuilder.Entity("PPSNR.Server.Data.Entities.Streamer", b =>
-                {
-                    b.HasOne("PPSNR.Server.Data.ApplicationUser", "ApplicationUser")
-                        .WithMany("Streamers")
-                        .HasForeignKey("ApplicationUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("ApplicationUser");
-                });
-
             modelBuilder.Entity("PPSNR.Server.Data.Entities.StreamerPair", b =>
                 {
                     b.HasOne("PPSNR.Server.Data.ApplicationUser", "Owner")
                         .WithMany()
-                        .HasForeignKey("OwnerUserId");
+                        .HasForeignKey("OwnerId");
 
                     b.HasOne("PPSNR.Server.Data.ApplicationUser", "Partner")
                         .WithMany()
-                        .HasForeignKey("PartnerUserId");
+                        .HasForeignKey("PartnerId");
 
                     b.Navigation("Owner");
 
                     b.Navigation("Partner");
-                });
-
-            modelBuilder.Entity("PPSNR.Server.Data.ApplicationUser", b =>
-                {
-                    b.Navigation("ExternalIdentities");
-
-                    b.Navigation("Streamers");
                 });
 
             modelBuilder.Entity("PPSNR.Server.Data.Entities.Layout", b =>

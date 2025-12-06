@@ -62,7 +62,7 @@ public sealed class InviteController : ControllerBase
             await _layoutService.EnsurePartnerSlotsCreatedAsync(pair.Id);
         }
 
-        // Redirect to the partner edit page using the same token
-        return Redirect($"/{pairId}/partner-edit/{token}");
+        // Redirect to the pair show/details page
+        return Redirect($"/pairs/{pairId}");
     }
 }
