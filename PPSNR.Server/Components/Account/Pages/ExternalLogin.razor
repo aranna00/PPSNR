@@ -83,6 +83,12 @@
             return;
         }
 
+        if (HttpContext.User?.Identity?.IsAuthenticated == true)
+        {
+            RedirectManager.RedirectTo("/");
+            return;
+        }
+
         var info = await SignInManager.GetExternalLoginInfoAsync();
 
         if (info is null)
@@ -103,8 +109,11 @@
                 return;
             }
 
-            // We should only reach this page via the login callback, so redirect back to
-            // the login page if we get here some other way.
+            if (externalLoginInfo != null)
+            {
+                return;
+            }
+
             RedirectManager.RedirectTo("Account/Login");
         }
     }
@@ -132,7 +141,8 @@
                  externalLoginInfo.Principal.Identity?.Name,
                  externalLoginInfo.LoginProvider);
 
-            RedirectManager.RedirectTo(ReturnUrl);
+            var redirectUrl = string.IsNullOrEmpty(ReturnUrl) ? "/" : ReturnUrl;
+            RedirectManager.RedirectTo(redirectUrl);
 
             return;
         }
@@ -144,8 +154,8 @@
         }
         // If the user does not have an account, redirect to confirmation page
         // where they will be required to provide a username and email.
-        // Store the external login info in session to use during confirmation.
-        RedirectManager.RedirectTo("Account/ExternalLogin", new() { ["action"] = LoginCallbackAction });
+        // Redirect without Action parameter so the confirmation form displays without re-triggering the callback
+        RedirectManager.RedirectTo("Account/ExternalLogin");
     }
 
     private async Task OnValidSubmitAsync()

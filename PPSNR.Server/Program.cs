@@ -11,11 +11,9 @@ using PPSNR.Server.Services;
 using PPSNR.Server.Hubs;
 using Microsoft.AspNetCore.Hosting.Server;
 using PPSNR.Server.Shared;
-using IPNetwork = System.Net.IPNetwork;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load .env file (simple KEY=VALUE parser) so developers can toggle features locally
 string? FindEnvFile()
 {
     var candidates = new List<string>();
@@ -37,7 +35,10 @@ string? FindEnvFile()
                 dir = dir.Parent;
             }
         }
-        catch { }
+        catch
+        {
+            // ignored
+        }
     }
     return candidates.FirstOrDefault(File.Exists);
 }
@@ -45,7 +46,6 @@ string? FindEnvFile()
 var envFile = FindEnvFile();
 if (!string.IsNullOrEmpty(envFile) && File.Exists(envFile))
 {
-    // Parse .env and set both process env vars and Configuration provider values
     var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     foreach (var line in File.ReadAllLines(envFile))
     {
@@ -55,7 +55,6 @@ if (!string.IsNullOrEmpty(envFile) && File.Exists(envFile))
         if (idx <= 0) continue;
         var key = trimmed.Substring(0, idx).Trim();
         var value = trimmed.Substring(idx + 1).Trim();
-        // remove optional quotes
         if ((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\'')))
         {
             value = value.Substring(1, value.Length - 2);
@@ -63,12 +62,11 @@ if (!string.IsNullOrEmpty(envFile) && File.Exists(envFile))
         Environment.SetEnvironmentVariable(key, value);
         dict[key] = value;
     }
-    // Make sure newly set variables are visible via IConfiguration in this process
+
     builder.Configuration.AddInMemoryCollection(dict);
     builder.Configuration.AddEnvironmentVariables();
 }
 
-// Configuration
 var config = builder.Configuration;
 
 // Add services to the container.
@@ -118,28 +116,22 @@ var twitchClientSecret = config["TWITCH_CLIENT_SECRET"] ?? config["Authenticatio
 builder.Services
        .AddAuthentication(options =>
        {
-           // Use Identity application cookie as default scheme
            options.DefaultScheme = IdentityConstants.ApplicationScheme;
-           // Sign successful external logins into the application cookie
-           options.DefaultSignInScheme = IdentityConstants.ApplicationScheme;
-           // Do not set DefaultChallengeScheme globally; local login UI is the default.
+           options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
        })
        .AddIdentityCookies();
 
-// Register Twitch only when credentials are supplied
 if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twitchClientSecret))
 {
     builder.Services
         .AddAuthentication()
         .AddTwitch("Twitch", options =>
-        {
-            options.ClientId = twitchClientId;
-            options.ClientSecret = twitchClientSecret;
-            options.SaveTokens = true;
-            options.CallbackPath = "/auth/twitch/callback";
+            {
+                options.ClientId = twitchClientId;
+                options.ClientSecret = twitchClientSecret;
+                options.SaveTokens = true;
+                options.CallbackPath = "/auth/twitch/callback";
 
-            // Use a hardened backchannel client to avoid TLS/HTTP version issues that can
-            // surface as TaskCanceledException during code exchange.
             var handler = new SocketsHttpHandler
             {
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
@@ -150,6 +142,7 @@ if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twi
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
                 ConnectTimeout = TimeSpan.FromSeconds(15)
             };
+
             options.Backchannel = new HttpClient(handler)
             {
                 Timeout = TimeSpan.FromSeconds(60),
@@ -157,9 +150,30 @@ if (!string.IsNullOrWhiteSpace(twitchClientId) && !string.IsNullOrWhiteSpace(twi
                 DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
             };
 
-            // Correlation cookie must allow cross-site in external login roundtrip
             options.CorrelationCookie.SameSite = SameSiteMode.None;
             options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
+
+            options.Events.OnRemoteFailure = context =>
+            {
+                var errorMessage = context.Failure?.Message ?? "Unknown error";
+                context.Response.Redirect($"/Account/Login?RemoteError={Uri.EscapeDataString(errorMessage)}");
+                context.HandleResponse();
+                return Task.CompletedTask;
+            };
+
+            options.Events.OnCreatingTicket = async context =>
+            {
+                try
+                {
+                    // Don't modify the claims - keep the Twitch ID as NameIdentifier
+                    // This allows ExternalLoginSignInAsync to find the linked account via UserLogins table lookup
+                    // The mapping from Twitch ID to database user ID happens inside ExternalLoginSignInAsync
+                }
+                catch
+                {
+                    // If anything fails, just proceed with normal flow
+                }
+            };
         });
 }
 
@@ -183,7 +197,6 @@ builder.Services
        .AddIdentityCore<ApplicationUser>
             (options =>
             {
-                // Allow immediate sign-in for newly auto-created accounts (including Twitch)
                 options.SignIn.RequireConfirmedAccount = false;
                 options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
             })
@@ -207,15 +220,12 @@ else
     app.UseHsts();
 }
 
-// Ensure the PostgreSQL database schema is applied at startup (migrations).
-// This will create the schema if it doesn't exist and keep it up to date.
 using (var scope = app.Services.CreateScope())
 {
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
     var logger = loggerFactory.CreateLogger("Startup");
     try
     {
-        // Skip DB initialization when running under TestServer (unit/integration tests)
         var server = scope.ServiceProvider.GetService<IServer>();
         var serverAsm = server?.GetType().Assembly.GetName().Name;
         var isTestServer = string.Equals(serverAsm, "Microsoft.AspNetCore.TestHost", StringComparison.Ordinal);
@@ -226,15 +236,12 @@ using (var scope = app.Services.CreateScope())
         }
 
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        // For PostgreSQL (and most relational providers), apply migrations if available.
         try
         {
             db.Database.Migrate();
         }
         catch (Exception migrateEx)
         {
-            // If provider-specific migrations are incompatible (e.g., legacy Sqlite types),
-            // fall back to EnsureCreated so fresh databases can be created.
             logger.LogWarning(migrateEx, "Migrate() failed; falling back to EnsureCreated(). Consider regenerating migrations for PostgreSQL.");
             db.Database.EnsureCreated();
         }
@@ -247,8 +254,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Always trust reverse-proxy headers from any number of proxies.
-// This removes the need for configuration and avoids "Unknown proxy" issues.
 var fwdOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor |
@@ -257,7 +262,7 @@ var fwdOptions = new ForwardedHeadersOptions
     RequireHeaderSymmetry = false,
     ForwardLimit = null
 };
-// Trust all proxies and networks by clearing the allow-lists
+
 fwdOptions.KnownIPNetworks.Clear();
 fwdOptions.KnownProxies.Clear();
 
