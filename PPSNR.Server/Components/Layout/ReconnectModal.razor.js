@@ -32,6 +32,11 @@ function handleReconnectStateChanged(event) {
             case "show":
                 modal.showModal();
                 stopFailedRetryPolling();
+                // Show generic reconnecting message and hide retry counter
+                const statusMsg = document.getElementById('ppsnr-reconnect-status');
+                const retryCounter = document.getElementById('ppsnr-retry-counter');
+                if (statusMsg) statusMsg.style.display = 'block';
+                if (retryCounter) retryCounter.style.display = 'none';
                 break;
             case "hide":
                 modal.close();
@@ -69,8 +74,10 @@ function startFailedRetryPolling() {
     _retryPolicy.reset();
     console.debug('[ReconnectModal] starting automatic retry with exponential backoff');
 
-    // Show our custom retry counter
+    // Hide generic reconnecting message and show our custom retry counter
+    const statusMsg = document.getElementById('ppsnr-reconnect-status');
     const counter = document.getElementById('ppsnr-retry-counter');
+    if (statusMsg) statusMsg.style.display = 'none';
     if (counter) counter.style.display = 'block';
 
     // Schedule first retry
@@ -132,6 +139,9 @@ function stopFailedRetryPolling() {
     }
     const counter = document.getElementById('ppsnr-retry-counter');
     if (counter) counter.style.display = 'none';
+    // Also restore generic status message visibility
+    const statusMsg = document.getElementById('ppsnr-reconnect-status');
+    if (statusMsg) statusMsg.style.display = 'block';
 }
 
 async function attemptReconnect() {

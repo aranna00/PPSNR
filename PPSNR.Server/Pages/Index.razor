@@ -1,19 +1,16 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 @inject NavigationManager Nav
 
 <div>
-    <button @onclick="Test">Test</button>
+    <h1>Welcome to PPSNR</h1>
+    <p>Your gateway to seamless soul link nuzlocke collaborations.</p>
+    <button class="btn btn-primary" @onclick="() => MoveToPairs()">View Streamer Pairs</button>
 </div>
 
 @code {
-
-    private void Test()
+    private void MoveToPairs()
     {
-        Console.WriteLine("This is a test");
-    }
-
-    protected override void OnInitialized()
-    {
-        Nav.NavigateTo("/pairs", true);
+        Nav.NavigateTo("/pairs");
     }
 }

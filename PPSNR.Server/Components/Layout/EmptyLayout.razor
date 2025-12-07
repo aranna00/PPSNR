@@ -1,6 +1,24 @@
 @inherits LayoutComponentBase
-
+<style>
+    body {
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+    }
+    html {
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+    }
+    #app {
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+    }
+</style>
+<div class="browser-source-layout">
 @Body
+</div>
 
 @* Ensure editor scripts are loaded for pages using the EmptyLayout (like the Edit page) *@
 <script src="js/antiforgery.js"></script>

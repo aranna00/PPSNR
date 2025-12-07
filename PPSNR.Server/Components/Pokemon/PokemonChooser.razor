@@ -3,7 +3,7 @@
 
 <div class="col-md-6 mb-6">
     <div class="card">
-        <div class="card-body">
+        <div class="card-body bg-dark">
             <h5 class="card-title">@(Profile == SlotProfile.Owner ? "Owner" : "Partner") @(Slot.Index + 1)</h5>
             @if (!string.IsNullOrEmpty(CurrentImageUrl))
             {
@@ -20,7 +20,7 @@
                     <div class="list-group position-absolute w-100 autocomplete-menu">
                         @foreach (var item in GetMatchesInternal(_searchText).Take(20))
                         {
-                            <button type="button" class="list-group-item list-group-item-action d-flex align-items-center"
+                            <button type="button" class="list-group-item list-group-item-dark list-group-item-action d-flex align-items-center"
                                     @onclick="() => _ = SelectPokemonById(item.Id)">
                                 <img src="@item.IconUrl" alt="@item.DisplayName" class="me-2 icon-32 pixelated" />
                                 <span class="text-nowrap">#@item.Id.ToString("000") @item.DisplayName</span>
@@ -33,8 +33,8 @@
                     </div>
                 }
                 <div class="d-flex gap-2 mt-2">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _ = ClearPokemon()">Clear</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _isOpen = true">Open list</button>
+                    <button type="button" class="btn btn-sm btn-secondary" @onclick="() => _ = ClearPokemon()">Clear</button>
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => _isOpen = true">Open list</button>
                 </div>
             </div>
 
