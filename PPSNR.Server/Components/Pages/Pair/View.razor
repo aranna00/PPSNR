@@ -3,10 +3,14 @@
 @rendermode InteractiveServer
 @using PPSNR.Server.Components.Layout
 @using PPSNR.Server.Data.Entities
+@using System.Threading
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
 @inject Services.ImagesCacheService ImagesCache
 @inject IJSRuntime JS
+
+<script src="js/retry-policy.js"></script>
+<script src="js/hub-reconnect.js"></script>
 
 
 @* Styles moved to wwwroot/app.scss *@
@@ -41,6 +45,9 @@
     private SlotProfile _viewProfile;
     private bool _showBorders;
     private bool _jsReady; // set when first interactive render completes
+    private bool _keepModalPinned;
+    private Timer? _serverProbeTimer;
+    private bool _isServerReachable;
 
     protected override async Task OnInitializedAsync()
     {
@@ -105,123 +112,280 @@
 
     private async Task SetupHubAsync()
     {
-        _hub = new HubConnectionBuilder()
-            .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
-            .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
-            .Build();
-
-        // Typed envelope handler for forward-compatible messages
-        _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
+        try
         {
-            try
+            _keepModalPinned = false;
+            _isServerReachable = true;
+
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/layout"))
+                .WithAutomaticReconnect(new Shared.SignalR.AdvancedRetryPolicy())
+                .Build();
+
+            // Typed envelope handler for forward-compatible messages
+            _hub.On<PPSNR.Shared.SignalR.SignalRMessageEnvelope>("Message", envelope =>
             {
-                if (envelope == null) return;
-                if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
-                {
-                    var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
-                    if (dto == null) return;
-
-                    var id = dto.Id;
-                    var profile = dto.Profile;
-                    var x = dto.X;
-                    var y = dto.Y;
-                    var z = dto.ZIndex;
-                    var vis = dto.Visible;
-                    var img = dto.ImageUrl;
-                    var width = dto.Width;
-                    var height = dto.Height;
-
-                    var slot = _slots.FirstOrDefault(s => s.Id == id);
-                    if (slot != null)
-                    {
-                        // Apply image update even when null to support clearing from Select page
-                        slot.ImageUrl = img;
-                        if (width.HasValue) slot.Width = width.Value;
-                        if (height.HasValue) slot.Height = height.Value;
-                        if (profile != null)
-                        {
-                            var prof = (SlotProfile)profile.Value;
-                            if (_placements.TryGetValue((slot.Id, prof), out var placement))
-                            {
-                                if (x.HasValue) placement.X = x.Value;
-                                if (y.HasValue) placement.Y = y.Value;
-                                if (z.HasValue) placement.ZIndex = z.Value;
-                                if (vis.HasValue) placement.Visible = vis.Value;
-                                if (width.HasValue) placement.Width = width.Value;
-                                if (height.HasValue) placement.Height = height.Value;
-                            }
-                        }
-                        InvokeAsync(StateHasChanged);
-                    }
-                }
-                else if (string.Equals(envelope.Type, "PlacementsReset", StringComparison.OrdinalIgnoreCase))
-                {
-                    InvokeAsync(async () =>
-                    {
-                        await ReloadPlacementsAsync();
-                        StateHasChanged();
-                    });
-                }
-                else if (string.Equals(envelope.Type, "ToggleBorders", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
-                {
-                    try
-                    {
-                        var root = envelope.Data.Value;
-                        if (root.TryGetProperty("show", out var s) && (s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False))
-                        {
-                            var value = s.GetBoolean();
-                            InvokeAsync(() => { _showBorders = value; StateHasChanged(); });
-                        }
-                    }
-                    catch { /* ignore */ }
-                }
-            }
-            catch { /* ignore malformed event */ }
-        });
-
-        // When hub closes, attempt graceful reconnection without page reload
-        _hub.Closed += async (error) =>
-        {
-            try
-            {
-                // If Blazor's reconnect UI is active, wait until it finishes to avoid interfering
-                var isReconnecting = false;
                 try
                 {
-                    isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
-                }
-                catch { /* JS might not be available during circuit transitions */ }
+                    if (envelope == null) return;
+                    if (string.Equals(envelope.Type, "SlotUpdated", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                    {
+                        var dto = System.Text.Json.JsonSerializer.Deserialize<PPSNR.Shared.SignalR.SlotUpdatedDto>(envelope.Data.Value.GetRawText());
+                        if (dto == null) return;
 
-                var waited = 0;
-                while (isReconnecting && waited < 120)
+                        var id = dto.Id;
+                        var profile = dto.Profile;
+                        var x = dto.X;
+                        var y = dto.Y;
+                        var z = dto.ZIndex;
+                        var vis = dto.Visible;
+                        var img = dto.ImageUrl;
+                        var width = dto.Width;
+                        var height = dto.Height;
+
+                        var slot = _slots.FirstOrDefault(s => s.Id == id);
+                        if (slot != null)
+                        {
+                            // Apply image update even when null to support clearing from Select page
+                            slot.ImageUrl = img;
+                            if (width.HasValue) slot.Width = width.Value;
+                            if (height.HasValue) slot.Height = height.Value;
+                            if (profile != null)
+                            {
+                                var prof = (SlotProfile)profile.Value;
+                                if (_placements.TryGetValue((slot.Id, prof), out var placement))
+                                {
+                                    if (x.HasValue) placement.X = x.Value;
+                                    if (y.HasValue) placement.Y = y.Value;
+                                    if (z.HasValue) placement.ZIndex = z.Value;
+                                    if (vis.HasValue) placement.Visible = vis.Value;
+                                    if (width.HasValue) placement.Width = width.Value;
+                                    if (height.HasValue) placement.Height = height.Value;
+                                }
+                            }
+                            InvokeAsync(StateHasChanged);
+                        }
+                    }
+                    else if (string.Equals(envelope.Type, "PlacementsReset", StringComparison.OrdinalIgnoreCase))
+                    {
+                        InvokeAsync(async () =>
+                        {
+                            await ReloadPlacementsAsync();
+                            StateHasChanged();
+                        });
+                    }
+                    else if (string.Equals(envelope.Type, "ToggleBorders", StringComparison.OrdinalIgnoreCase) && envelope.Data.HasValue)
+                    {
+                        try
+                        {
+                            var root = envelope.Data.Value;
+                            if (root.TryGetProperty("show", out var s) && (s.ValueKind == System.Text.Json.JsonValueKind.True || s.ValueKind == System.Text.Json.JsonValueKind.False))
+                            {
+                                var value = s.GetBoolean();
+                                InvokeAsync(() => { _showBorders = value; StateHasChanged(); });
+                            }
+                        }
+                        catch { /* ignore */ }
+                    }
+                }
+                catch { /* ignore malformed event */ }
+            });
+
+            _hub.Reconnecting += async (error) =>
+            {
+                try
                 {
-                    await Task.Delay(1000);
-                    waited += 1;
+                    _keepModalPinned = true;
+
+                    await JS.InvokeVoidAsync("console.warn", "[View.razor] Hub reconnecting...", error?.Message);
+                    await JS.InvokeVoidAsync("PPSNR.triggerReconnectModalState", "retrying");
+                    await JS.InvokeVoidAsync("PPSNR.setReconnectOverlayForced", true);
+                }
+                catch { /* ignore */ }
+            };
+
+            _hub.Reconnected += async (connectionId) =>
+            {
+                try
+                {
+                    _keepModalPinned = false;
+
+                    await JS.InvokeVoidAsync("console.log", $"[View.razor] Hub reconnected. ConnectionId={connectionId}");
+                    await JS.InvokeVoidAsync("PPSNR.triggerReconnectModalState", "hide");
+                    await JS.InvokeVoidAsync("PPSNR.resetRetryPolicy");
+                    await JS.InvokeVoidAsync("PPSNR.setReconnectOverlayForced", false);
+                }
+                catch { /* ignore */ }
+
+                // Rejoin pair group because SignalR subscriptions reset after reconnect
+                try
+                {
+                    await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+                }
+                catch (Exception sendEx)
+                {
+                    await JS.InvokeVoidAsync("console.error", $"[View.razor] Failed to resubscribe after reconnect: {sendEx.Message}");
+                }
+            };
+
+            // When hub closes, attempt graceful reconnection without page reload
+            _hub.Closed += async (error) =>
+            {
+                try
+                {
+                    _keepModalPinned = true;
+
+                    // Log the disconnection for debugging
+                    if (error != null)
+                    {
+                        await JS.InvokeVoidAsync("console.warn", $"[View.razor] Hub disconnected: {error.Message}");
+                    }
+                    else
+                    {
+                        await JS.InvokeVoidAsync("console.log", "[View.razor] Hub disconnected");
+                    }
+
+                    // Show the reconnect modal manually since this is a hub disconnect, not a Blazor circuit failure
                     try
                     {
-                        isReconnecting = await JS.InvokeAsync<bool>("PPSNR.isReconnecting");
+                        await JS.InvokeVoidAsync("PPSNR.triggerReconnectModalState", "failed");
                     }
-                    catch { isReconnecting = false; }
+                    catch { /* modal may not be available in OBS context */ }
+
+                    // Wait for Blazor's reconnect UI to finish (up to 2 minutes)
+                    await JS.InvokeVoidAsync("console.debug", "[View.razor] Waiting for Blazor UI...");
+                    try
+                    {
+                        await JS.InvokeVoidAsync("PPSNR.waitForBlazorReconnect");
+                    }
+                    catch { /* ignore */ }
+
+                    // Get the next retry delay from the shared retry policy
+                    var retryDelayMs = await GetNextRetryDelayAsync();
+                    if (retryDelayMs.HasValue && retryDelayMs.Value > 0)
+                    {
+                        await JS.InvokeVoidAsync("console.debug", $"[View.razor] Retrying hub connection in {retryDelayMs}ms");
+                        await Task.Delay(retryDelayMs.Value);
+                    }
+                    else
+                    {
+                        // If retry policy says we're done, just wait a bit before trying
+                        await Task.Delay(500);
+                    }
+
+                    if (_hub != null)
+                    {
+                        await _hub.DisposeAsync();
+                        _hub = null;
+                    }
+
+                    if (_serverProbeTimer == null)
+                    {
+                        _serverProbeTimer = new Timer(async _ => await PollServerAvailabilityAsync(), null, 0, 3000);
+                    }
+
+                    if (!_isServerReachable)
+                    {
+                        await JS.InvokeVoidAsync("console.debug", "[View.razor] Server still offline, delaying hub rebuild");
+                        await Task.Delay(2000);
+                        return;
+                    }
+
+                    await SetupHubAsync();
                 }
-
-                // short delay to let server finish restarting if applicable
-                await Task.Delay(500);
-
-                if (_hub != null)
+                catch (Exception ex)
                 {
-                    await _hub.DisposeAsync();
+                    // Log error
+                    try
+                    {
+                        await JS.InvokeVoidAsync("console.error", $"[View.razor] Hub reconnection error: {ex.Message}");
+                    }
+                    catch { /* ignore */ }
+
+                    // Schedule another attempt after a delay
+                    await Task.Delay(2000);
+                    try
+                    {
+                        if (_hub != null)
+                        {
+                            await _hub.DisposeAsync();
+                            _hub = null;
+                        }
+                        await SetupHubAsync();
+                    }
+                    catch { /* If this also fails, let the next Closed event handle it */ }
                 }
+            };
 
-                await SetupHubAsync();
-            }
-            catch
+            await _hub.StartAsync();
+            _keepModalPinned = false;
+            await JS.InvokeVoidAsync("PPSNR.releaseReconnectOverlay");
+            await JS.InvokeVoidAsync("PPSNR.setReconnectOverlayForced", false);
+
+            await JS.InvokeVoidAsync("console.log", "[View.razor] Hub connected successfully");
+            await JS.InvokeVoidAsync("PPSNR.triggerReconnectModalState", "hide");
+
+            // Reset retry policy on successful connection
+            try
             {
-                // If reconnection fails, the next Closed event will trigger another attempt
+                await JS.InvokeVoidAsync("PPSNR.resetRetryPolicy");
             }
-        };
+            catch { }
 
-        await _hub.StartAsync();
-        await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+            await _hub.SendAsync("SubscribeToPair", PairId.ToString());
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("console.error", $"[View.razor] SetupHubAsync error: {ex.Message}");
+            }
+            catch { /* ignore */ }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Gets the next retry delay from the shared JavaScript retry policy
+    /// </summary>
+    private async Task<int?> GetNextRetryDelayAsync()
+    {
+        try
+        {
+            // Use a helper method to get the next delay
+            var delay = await JS.InvokeAsync<int?>("PPSNR.getNextRetryDelayHelper");
+            return delay ?? 3000;
+        }
+        catch (Exception ex)
+        {
+            // Fallback to fixed delay if retry policy is not available
+            try
+            {
+                await JS.InvokeVoidAsync("console.warn", $"[View.razor] Failed to get retry delay: {ex.Message}");
+            }
+            catch { }
+            return 3000; // 3 second fallback
+        }
+    }
+
+    private async Task PollServerAvailabilityAsync()
+    {
+        try
+        {
+            var reachable = await JS.InvokeAsync<bool>("PPSNR.isServerReachable");
+            _isServerReachable = reachable;
+            if (reachable)
+            {
+                await JS.InvokeVoidAsync("console.debug", "[View.razor] Server reachable again");
+                _serverProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _serverProbeTimer?.Dispose();
+                _serverProbeTimer = null;
+            }
+        }
+        catch
+        {
+            _isServerReachable = false;
+        }
     }
 
     public void Dispose()

@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@using PPSNR.Server.Components.Layout
+
 <style>
     body {
         background: transparent !important;
@@ -19,6 +21,8 @@
 <div class="browser-source-layout">
 @Body
 </div>
+
+<ReconnectModal/>
 
 @* Ensure editor scripts are loaded for pages using the EmptyLayout (like the Edit page) *@
 <script src="js/antiforgery.js"></script>

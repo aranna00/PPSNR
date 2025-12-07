@@ -1,5 +1,6 @@
 // Initialize window.PPSNR API for C# interop
 window.PPSNR = window.PPSNR || {};
+window.PPSNR._manualReconnectOverlayState = window.PPSNR._manualReconnectOverlayState || { forced: false };
 window.PPSNR.__reconnectState = "hidden";
 window.PPSNR.isReconnecting = function() {
     return window.PPSNR.__reconnectState === "show" || window.PPSNR.__reconnectState === "failed" || window.PPSNR.__reconnectState === "rejected";
@@ -39,6 +40,10 @@ function handleReconnectStateChanged(event) {
                 if (retryCounter) retryCounter.style.display = 'none';
                 break;
             case "hide":
+                if (window.PPSNR._manualReconnectOverlayState?.forced) {
+                    console.debug('[ReconnectModal] hide requested but overlay forced, ignoring');
+                    return;
+                }
                 modal.close();
                 stopFailedRetryPolling();
                 break;
@@ -203,86 +208,29 @@ async function isServerReachable() {
     }
 }
 
-// ============================================================================
-// AdvancedRetryPolicy - Exponential Backoff with Circuit Breaker
-// ============================================================================
-
-class PPSNRRetryPolicy {
-    constructor(options = {}) {
-        this.initialBackoff = options.initialBackoff || 500; // ms
-        this.maxBackoff = options.maxBackoff || 30000; // ms
-        this.multiplier = options.multiplier || 2.0;
-        this.jitterRatio = options.jitterRatio || 0.2; // +/-20%
-        this.maxRetryCount = options.maxRetryCount || null; // unlimited
-
-        this.retryCount = 0;
-        this.failures = [];
-        this.circuitBreakerThreshold = options.circuitBreakerThreshold || 6;
-        this.circuitBreakerWindow = options.circuitBreakerWindow || 30000; // ms
-        this.circuitBreakerCooldown = options.circuitBreakerCooldown || 60000; // ms
-        this.circuitOpenUntil = null;
-    }
-
-    getNextRetryDelay() {
-        const now = Date.now();
-
-        // Check max retries
-        if (this.maxRetryCount !== null && this.retryCount >= this.maxRetryCount) {
-            return null;
-        }
-
-        // Circuit breaker logic
-        if (this.circuitOpenUntil && now < this.circuitOpenUntil) {
-            const delay = this.circuitOpenUntil - now;
-            return this.capAndJitter(delay, true);
-        } else if (this.circuitOpenUntil && now >= this.circuitOpenUntil) {
-            this.circuitOpenUntil = null;
-        }
-
-        // Prune old failures outside the window
-        this.failures = this.failures.filter(t => (now - t) <= this.circuitBreakerWindow);
-        this.failures.push(now);
-
-        // Check circuit breaker threshold
-        if (this.failures.length >= this.circuitBreakerThreshold) {
-            this.circuitOpenUntil = now + this.circuitBreakerCooldown;
-            const delay = this.circuitBreakerCooldown;
-            this.failures = [];
-            console.debug('[ReconnectModal] circuit breaker activated for', Math.ceil(this.circuitBreakerCooldown / 1000), 'seconds');
-            return this.capAndJitter(delay, true);
-        }
-
-        // Exponential backoff: baseDelay * (multiplier ^ retryCount)
-        const baseDelay = this.initialBackoff;
-        const exp = Math.pow(this.multiplier, Math.max(0, this.retryCount));
-        const delay = baseDelay * exp;
-
-        this.retryCount++;
-        return this.capAndJitter(delay);
-    }
-
-    capAndJitter(delay, forceAsIs = false) {
-        // Cap at max
-        let capped = Math.min(delay, this.maxBackoff);
-
-        if (forceAsIs || this.jitterRatio <= 0) {
-            return capped;
-        }
-
-        // Add jitter: +/- jitterRatio%
-        const jitterRangeMs = capped * this.jitterRatio;
-        const delta = (Math.random() * 2 - 1) * jitterRangeMs;
-        const jitteredMs = Math.max(0, capped + delta);
-        return Math.round(jitteredMs);
-    }
-
-    reset() {
-        this.retryCount = 0;
-        this.failures = [];
-        this.circuitOpenUntil = null;
-    }
+// Ensure Promise.withResolvers exists for older Chromium builds (e.g., OBS)
+if (typeof Promise !== 'undefined' && typeof Promise.withResolvers !== 'function') {
+    Promise.withResolvers = function () {
+        let resolve;
+        let reject;
+        const promise = new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    };
+    console.debug('[ReconnectModal] Applied Promise.withResolvers polyfill');
 }
 
-// Create global policy instance
-const _retryPolicy = new PPSNRRetryPolicy();
-
+// Use the shared retry policy from retry-policy.js
+// Fallback creation if the module hasn't loaded yet
+const _retryPolicy = (window.PPSNR?.createRetryPolicy ? window.PPSNR.createRetryPolicy() : (() => {
+    console.warn('[ReconnectModal] retry-policy.js not loaded, creating local fallback');
+    // Minimal fallback if the shared module hasn't loaded
+    return {
+        getNextRetryDelay: () => Math.min(500 * Math.pow(2, Math.min(5, this.attempt || 0)), 30000),
+        reset: () => { this.attempt = 0; },
+        retryCount: 0,
+        attempt: 0
+    };
+})());
